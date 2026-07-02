@@ -178,5 +178,17 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wave span { animation: none; height: 18px; }
+  .wave span {
+    animation: reduced-voice 1.8s ease-in-out infinite;
+    height: 16px;
+  }
+
+  .progress span {
+    animation-duration: 2.4s;
+  }
+}
+
+@keyframes reduced-voice {
+  0%, 100% { opacity: 0.55; transform: scaleY(0.82); }
+  50% { opacity: 1; transform: scaleY(1.18); }
 }

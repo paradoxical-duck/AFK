@@ -39,6 +39,8 @@ let tray = null;
 let bridge = null;
 let isQuitting = false;
 let overlayHideTimer = null;
+let overlayReady = false;
+let pendingOverlayPayload = null;
 
 const DEV = !!process.env.AFK_DEV;
 const APP_USER_MODEL_ID = 'com.afk.app';
@@ -118,6 +120,7 @@ function positionOverlay() {
 function createOverlayWindow() {
   if (overlayWindow && !overlayWindow.isDestroyed()) return;
 
+  overlayReady = false;
   overlayWindow = new BrowserWindow({
     width: 460,
     height: 78,
@@ -144,12 +147,26 @@ function createOverlayWindow() {
 
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  overlayWindow.webContents.on('did-finish-load', () => {
+    overlayReady = true;
+    if (pendingOverlayPayload) {
+      overlayWindow.webContents.send('overlay:state', pendingOverlayPayload);
+    }
+  });
+  overlayWindow.webContents.on('render-process-gone', (_event, details) => {
+    logger.warn(`Overlay renderer gone: ${details && details.reason ? details.reason : 'unknown'}`);
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.destroy();
+  });
   overlayWindow.loadFile(path.join(__dirname, '..', 'ui', 'overlay.html'));
-  overlayWindow.on('closed', () => { overlayWindow = null; });
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+    overlayReady = false;
+  });
   positionOverlay();
 }
 
 function setOverlayState(state, payload = {}) {
+  const overlayPayload = { state, ...payload };
   createOverlayWindow();
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   if (overlayHideTimer) {
@@ -157,12 +174,15 @@ function setOverlayState(state, payload = {}) {
     overlayHideTimer = null;
   }
   positionOverlay();
-  overlayWindow.webContents.send('overlay:state', { state, ...payload });
+  pendingOverlayPayload = overlayPayload;
   if (state === 'hidden') {
     overlayWindow.hide();
     return;
   }
   overlayWindow.showInactive();
+  if (overlayReady) {
+    overlayWindow.webContents.send('overlay:state', overlayPayload);
+  }
 }
 
 function hideOverlaySoon(delayMs = 1800) {
