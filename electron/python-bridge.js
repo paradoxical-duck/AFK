@@ -60,6 +60,7 @@ class PythonBridge extends EventEmitter {
         AFK_DATA_DIR: this.options.dataDir || '',
         AFK_MODELS_DIR: this.options.modelsDir || '',
         AFK_RESOURCES: this.options.resourcesPath || '',
+        AFK_HOTKEY_RUNTIME: process.platform === 'darwin' ? 'electron' : '',
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
         PYTHONDONTWRITEBYTECODE: '1'

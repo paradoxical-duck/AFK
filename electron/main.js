@@ -1,12 +1,13 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 const logger = require('./logger');
 const paths = require('./paths');
 const { PythonBridge } = require('./python-bridge');
+const { MacHotkeyManager } = require('./mac-hotkeys');
 
 let AutoLaunch = null;
 try { AutoLaunch = require('auto-launch'); } catch (_) { /* optional */ }
@@ -41,6 +42,13 @@ let isQuitting = false;
 let overlayHideTimer = null;
 let overlayReady = false;
 let pendingOverlayPayload = null;
+let macHotkeys = null;
+let recordingActive = false;
+let finishingRecording = false;
+let macHotkeyError = '';
+let macHotkeyLastConfig = null;
+let macHotkeyPermissionTimer = null;
+let macHotkeyPermissionPrompted = false;
 
 const DEV = !!process.env.AFK_DEV;
 const APP_USER_MODEL_ID = 'com.afk.app';
@@ -51,6 +59,9 @@ if (process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 app.setName('AFK');
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-compositing');
 
 function createWindow() {
   if (mainWindow) {
@@ -167,7 +178,8 @@ function createOverlayWindow() {
 
 function setOverlayState(state, payload = {}) {
   const overlayPayload = { state, ...payload };
-  createOverlayWindow();
+  if (state === 'hidden' && (!overlayWindow || overlayWindow.isDestroyed())) return;
+  if (state !== 'hidden') createOverlayWindow();
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   if (overlayHideTimer) {
     clearTimeout(overlayHideTimer);
@@ -190,6 +202,120 @@ function hideOverlaySoon(delayMs = 1800) {
   overlayHideTimer = setTimeout(() => {
     setOverlayState('hidden');
   }, delayMs);
+}
+
+function backendReadyForHotkeys() {
+  return bridge && bridge.isReady;
+}
+
+function callBackendForHotkey(method, params = {}, timeoutMs) {
+  if (!backendReadyForHotkeys()) {
+    logger.warn(`hotkey ignored; backend not ready (${method})`);
+    return Promise.resolve(null);
+  }
+  return bridge.call(method, params, timeoutMs).catch((err) => {
+    logger.error(`hotkey backend call failed (${method}): ${err.message || err}`);
+    return null;
+  });
+}
+
+function startRecordingFromHotkey() {
+  if (recordingActive || finishingRecording) return;
+  callBackendForHotkey('start_recording', {}).then((result) => {
+    if (result && result.recording) recordingActive = true;
+  });
+}
+
+function finishRecordingFromHotkey() {
+  if (!recordingActive || finishingRecording) return;
+  finishingRecording = true;
+  callBackendForHotkey('finish_recording', {}, 10 * 60 * 1000).finally(() => {
+    finishingRecording = false;
+  });
+}
+
+function toggleRecordingFromHotkey() {
+  if (recordingActive) finishRecordingFromHotkey();
+  else startRecordingFromHotkey();
+}
+
+function macAccessibilityTrusted(prompt = false) {
+  if (process.platform !== 'darwin') return true;
+  try {
+    return systemPreferences.isTrustedAccessibilityClient(prompt);
+  } catch (err) {
+    logger.warn(`mac accessibility trust check failed: ${err.message || err}`);
+    return null;
+  }
+}
+
+function macHotkeyStatus(base = {}) {
+  if (process.platform !== 'darwin') return base;
+  const trusted = macAccessibilityTrusted(false);
+  const listening = !!(macHotkeys && macHotkeys.isListening && macHotkeys.isListening());
+  return {
+    ...base,
+    available: true,
+    listening,
+    runtime: 'electron',
+    mac_accessibility_trusted: trusted,
+    mac_input_monitoring_trusted: true,
+    error: trusted === false ? 'Accessibility permission needed for AFK.app' : macHotkeyError
+  };
+}
+
+function clearMacHotkeyPermissionTimer() {
+  if (!macHotkeyPermissionTimer) return;
+  clearInterval(macHotkeyPermissionTimer);
+  macHotkeyPermissionTimer = null;
+}
+
+function waitForMacHotkeyPermission() {
+  if (process.platform !== 'darwin' || macHotkeyPermissionTimer) return;
+  macHotkeyPermissionTimer = setInterval(() => {
+    if (macAccessibilityTrusted(false) !== true) return;
+    clearMacHotkeyPermissionTimer();
+    logger.info('mac accessibility permission granted; starting native hotkeys');
+    configureMacHotkeys(macHotkeyLastConfig || {});
+  }, 3000);
+}
+
+function configureMacHotkeys(hotkeys) {
+  if (process.platform !== 'darwin') return;
+  macHotkeyLastConfig = hotkeys || {};
+  if (!macHotkeys) {
+    macHotkeys = new MacHotkeyManager(
+      {
+        pttStart: startRecordingFromHotkey,
+        pttStop: finishRecordingFromHotkey,
+        toggle: toggleRecordingFromHotkey,
+        clarify: () => callBackendForHotkey('hotkey_clarify', {}, 10 * 60 * 1000),
+        learnCorrection: () => callBackendForHotkey('hotkey_learn_correction', {}, 10 * 60 * 1000),
+        cancel: () => callBackendForHotkey('hotkey_cancel', {})
+      },
+      logger
+    );
+  }
+  macHotkeys.configure(hotkeys || {});
+
+  const trusted = macAccessibilityTrusted(!macHotkeyPermissionPrompted);
+  macHotkeyPermissionPrompted = true;
+  if (trusted === false) {
+    macHotkeyError = 'Accessibility permission needed for AFK.app';
+    logger.warn('mac native hotkey listener waiting for Accessibility permission for AFK.app');
+    waitForMacHotkeyPermission();
+    return;
+  }
+
+  try {
+    macHotkeys.start();
+    clearMacHotkeyPermissionTimer();
+    macHotkeyError = '';
+  } catch (err) {
+    macHotkeyError = err.message || String(err);
+    logger.error(`mac native hotkey listener failed: ${err.message || err}`);
+    waitForMacHotkeyPermission();
+  }
 }
 
 function createTray() {
@@ -247,12 +373,14 @@ function startBackend() {
     // Apply OS-level preferences from saved settings.
     bridge.call('get_settings', {}).then((cfg) => {
       applyAutoLaunch(!!(cfg && cfg.startup_on_login));
+      configureMacHotkeys(cfg && cfg.hotkeys);
     }).catch(() => {});
   });
 
   // React to settings changes for OS-level behaviors (auto-launch).
   bridge.on('event:settings_updated', (cfg) => {
     applyAutoLaunch(!!(cfg && cfg.startup_on_login));
+    configureMacHotkeys(cfg && cfg.hotkeys);
   });
 
   bridge.on('exit', () => {
@@ -264,10 +392,13 @@ function startBackend() {
   bridge.on('event', (event, data) => {
     broadcast('backend:event', { event, data });
     if (event === 'recording_started') {
+      recordingActive = true;
       setOverlayState('recording', { label: 'Listening' });
     } else if (event === 'recording_stopped') {
+      recordingActive = false;
       setOverlayState('processing', { label: 'Transcribing' });
     } else if (event === 'transcription') {
+      finishingRecording = false;
       const text = data && data.text ? String(data.text) : '';
       const reason = data && data.reason;
       const message = data && data.message;
@@ -291,6 +422,8 @@ function startBackend() {
       setOverlayState('done', { label: 'Corrected' });
       hideOverlaySoon(1200);
     } else if (event === 'cancelled') {
+      recordingActive = false;
+      finishingRecording = false;
       setOverlayState('done', { label: 'Cancelled' });
       hideOverlaySoon(900);
     }
@@ -314,7 +447,8 @@ function registerIpc() {
       'transcribe',
       'clarify'
     ]);
-    return bridge.call(method, params || {}, longCalls.has(method) ? 10 * 60 * 1000 : undefined);
+    const result = await bridge.call(method, params || {}, longCalls.has(method) ? 10 * 60 * 1000 : undefined);
+    return method === 'hotkeys_status' ? macHotkeyStatus(result) : result;
   });
 
   ipcMain.handle('afk:backendReady', () => (bridge ? bridge.isReady : false));
@@ -350,7 +484,6 @@ app.whenReady().then(() => {
 
   registerIpc();
   createTray();
-  createOverlayWindow();
   startBackend();
   createWindow();
 
@@ -370,6 +503,8 @@ app.on('window-all-closed', (e) => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  clearMacHotkeyPermissionTimer();
+  if (macHotkeys) macHotkeys.stop();
   if (bridge) bridge.stop();
 });
 

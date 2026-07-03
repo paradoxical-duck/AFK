@@ -7,7 +7,7 @@ let isRecording = false;
 let recTimer = null;
 let recStart = 0;
 let _settingsCache = null;
-let _platform = '';
+let _platform = /mac/i.test(navigator.platform || '') ? 'darwin' : '';
 let activeTrainingKind = null;
 
 function defaultHotkeys() {
@@ -447,6 +447,7 @@ function comboFromEvent(event) {
   }
 
   const parts = [];
+  if (_platform === 'darwin' && event.ctrlKey) return '';
   if (event.ctrlKey) parts.push('Ctrl');
   if (event.shiftKey) parts.push('Shift');
   if (event.altKey) parts.push(_platform === 'darwin' ? 'Option' : 'Alt');

@@ -85,11 +85,13 @@ class AFKApp:
         # AFK_NO_PRELOAD lets tests skip spawning model processes.
         if not os.environ.get("AFK_NO_PRELOAD"):
             self.transcriber.preload_async()
-            self.clarifier.preload_preferred_async()
+            # Clarify models are loaded lazily. Preloading the long Gemma
+            # server at app startup can consume several GB and make macOS lag.
         # Arm global hotkeys from saved settings.
         try:
             self.hotkeys.set_bindings(self.settings.get("hotkeys", {}))
-            self.hotkeys.start()
+            if os.environ.get("AFK_HOTKEY_RUNTIME") != "electron":
+                self.hotkeys.start()
             self._write_hotkey_status({"type": "startup"})
         except Exception as exc:  # noqa: BLE001
             logutil.error(f"Failed to start hotkeys: {exc}")
@@ -317,6 +319,9 @@ class AFKApp:
         self.register("paste_text", self._paste_text_method)
         self.register("set_hotkeys", self._set_hotkeys)
         self.register("hotkeys_status", self._hotkeys_status)
+        self.register("hotkey_cancel", self._hotkey_cancel_method)
+        self.register("hotkey_clarify", self._hotkey_clarify_method)
+        self.register("hotkey_learn_correction", self._hotkey_learn_correction_method)
 
     def _set_clipboard(self, params: Dict[str, Any]) -> Dict[str, Any]:
         self.clipboard.set_text(params.get("text", ""))
@@ -336,8 +341,29 @@ class AFKApp:
 
     def _hotkeys_status(self, _params: Dict[str, Any]) -> Dict[str, Any]:
         status = self.hotkeys.status()
+        if os.environ.get("AFK_HOTKEY_RUNTIME") == "electron":
+            status.update({
+                "available": True,
+                "listening": False,
+                "runtime": "electron",
+                "mac_accessibility_trusted": None,
+                "mac_input_monitoring_trusted": True,
+                "error": "Electron hotkey runtime reports status",
+            })
         status["hotkeys"] = self.settings.get("hotkeys", {})
         return status
+
+    def _hotkey_cancel_method(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        self._hk_cancel()
+        return {"ok": True}
+
+    def _hotkey_clarify_method(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        self._hk_clarify()
+        return {"ok": True}
+
+    def _hotkey_learn_correction_method(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        self._hk_learn_correction()
+        return {"ok": True}
 
     def _hotkey_event_observed(self, event: Dict[str, object]) -> None:
         self._write_hotkey_status(event)
