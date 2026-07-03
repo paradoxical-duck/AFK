@@ -51,7 +51,6 @@ let macHotkeyPermissionTimer = null;
 let macGlobalShortcutAccelerators = [];
 
 const DEV = !!process.env.AFK_DEV;
-const PROMPT_ACCESSIBILITY = process.argv.includes('--prompt-accessibility');
 const APP_USER_MODEL_ID = 'com.afk.app';
 const APP_ICON_PATH = path.join(__dirname, '..', 'assets', 'icon.ico');
 const TRAY_ICON_PATH = path.join(__dirname, '..', 'assets', 'tray.png');
@@ -348,7 +347,8 @@ function waitForMacHotkeyPermission() {
   if (process.platform !== 'darwin' || macHotkeyPermissionTimer) return;
   macHotkeyPermissionTimer = setInterval(() => {
     const trusted = macAccessibilityTrusted(false);
-    if (attemptStartMacHotkeys(trusted === true)) {
+    if (trusted !== true) return;
+    if (attemptStartMacHotkeys(true)) {
       logger.info('mac native hotkey listener started after permission retry');
     }
   }, 3000);
@@ -381,7 +381,9 @@ function configureMacHotkeys(hotkeys) {
   const trusted = macAccessibilityTrusted(false);
   if (trusted === false) {
     macHotkeyError = 'Accessibility permission needed for AFK.app';
-    logger.warn('mac accessibility trust query is false; attempting native listener anyway');
+    logger.warn('mac accessibility trust query is false; native listener paused until permission is granted');
+    waitForMacHotkeyPermission();
+    return;
   }
 
   if (!attemptStartMacHotkeys()) waitForMacHotkeyPermission();
@@ -557,10 +559,6 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   logger.init(paths.logsDir());
   logger.info('AFK starting up');
-  if (PROMPT_ACCESSIBILITY && process.platform === 'darwin') {
-    logger.info('mac accessibility permission prompt requested by setup flag');
-    macAccessibilityTrusted(true);
-  }
 
   registerIpc();
   createTray();
