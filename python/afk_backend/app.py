@@ -8,6 +8,7 @@ backend API easy to audit and version.
 
 import os
 import platform
+import re
 import sys
 import threading
 from typing import Any, Callable, Dict
@@ -21,6 +22,8 @@ from .clipboard.clipboard import Clipboard
 from .hotkeys import HotkeyManager
 from .clarify.engine import ClarifyEngine
 from .statistics import StatsStore
+from .adaptation import AdaptationStore
+from .history import HistoryStore
 
 
 class AFKApp:
@@ -41,12 +44,13 @@ class AFKApp:
                 "ptt_stop": self._hk_ptt_stop,
                 "toggle": self._hk_toggle,
                 "clarify": self._hk_clarify,
+                "learn_correction": self._hk_learn_correction,
                 "cancel": self._hk_cancel,
             }
         )
         # Set whenever Escape is pressed; cleared at the start of each new
-        # dictation/Clarify run. Checked at safe points so an in-flight
-        # command stops short of pasting/replacing anything.
+        # dictation/Clarify run. Checked at safe points so an in-flight command
+        # stops short of pasting or replacing anything.
         self._abort_event = threading.Event()
 
         # Phase 4 service.
@@ -54,6 +58,12 @@ class AFKApp:
 
         # Phase 5 service.
         self.statistics = StatsStore()
+        self.adaptation = AdaptationStore()
+        self.history = HistoryStore()
+        self._last_dictation_text = ""
+        self._last_inserted_text = ""
+        self._calibration_expected = ""
+        self._train_pending: Dict[str, Any] = {}
 
         self._methods: Dict[str, Callable[[Dict[str, Any]], Any]] = {}
         self._register_core()
@@ -61,6 +71,8 @@ class AFKApp:
         self._register_clipboard_hotkeys()
         self._register_clarify()
         self._register_statistics()
+        self._register_adaptation()
+        self._register_history()
 
     # ---- lifecycle ----
     def on_started(self) -> None:
@@ -169,6 +181,7 @@ class AFKApp:
             raise RpcError(f"ASR load failed: {exc}")
 
     def start_recording(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        self._abort_event.clear()
         device = params.get("device", self.settings.get("microphone"))
         self.recorder.start(device=device)
         emit_event("recording_started", {"device": device})
@@ -226,6 +239,27 @@ class AFKApp:
                     "message": "Microphone signal is too quiet. Check system input volume or choose another mic.",
                 }
             )
+        if result.get("text"):
+            if s.get("training_corrections", True):
+                adapted, changed, applied = self.adaptation.apply(result.get("text", ""))
+            else:
+                adapted, changed, applied = result.get("text", ""), False, []
+            if changed:
+                result["raw_text"] = result.get("text", "")
+                result["text"] = adapted
+                result["adapted"] = True
+                result["adaptations"] = applied
+                logutil.info(f"Applied {len(applied)} learned correction(s)")
+            formatted = _format_transcript_text(
+                result.get("text", ""),
+                capitalization=s.get("auto_capitalization", True),
+                punctuation=s.get("auto_punctuation", True),
+            )
+            if formatted != result.get("text", ""):
+                result.setdefault("raw_text", result.get("text", ""))
+                result["text"] = formatted
+                result["formatted"] = True
+            self._last_dictation_text = result.get("text", "")
         # Record usage stats (words dictated, recording length, transcription latency).
         try:
             words = len((result.get("text") or "").split())
@@ -240,6 +274,9 @@ class AFKApp:
                 "latency_ms": result.get("latency_ms", 0),
                 "reason": result.get("reason"),
                 "message": result.get("message"),
+                "raw_text": result.get("raw_text"),
+                "adapted": result.get("adapted", False),
+                "adaptations": result.get("adaptations", []),
                 "raw_levels": result.get("raw_levels"),
                 "processed_levels": result.get("processed_levels"),
             },
@@ -357,6 +394,8 @@ class AFKApp:
             before = text
             result["action"] = self._paste(before)
             result["inserted"] = True
+            self._last_inserted_text = before
+        self._record_history(text, result.get("action", ""))
         return result
 
     # ---- hotkey callbacks (run on the listener thread; offload heavy work) ----
@@ -390,6 +429,24 @@ class AFKApp:
 
     def _hk_clarify(self) -> None:
         threading.Thread(target=self._clarify_flow, daemon=True).start()
+
+    def _hk_cancel(self) -> None:
+        """Escape: abort dictation or Clarify without inserting anything."""
+        self._abort_event.set()
+        if self.recorder.is_recording:
+            threading.Thread(target=self._cancel_recording, daemon=True).start()
+        else:
+            emit_event("cancelled", {})
+
+    def _cancel_recording(self) -> None:
+        try:
+            self.recorder.stop()  # discard captured audio
+        except Exception as exc:  # noqa: BLE001
+            logutil.error(f"cancel recording failed: {exc}")
+        emit_event("cancelled", {"source": "dictation"})
+
+    def _hk_learn_correction(self) -> None:
+        threading.Thread(target=self._learn_correction_flow, daemon=True).start()
 
     # ---- statistics methods (Phase 5) ----
     def _register_statistics(self) -> None:
@@ -486,6 +543,127 @@ class AFKApp:
             {"text": out, "model": result.get("model"), "latency_ms": result.get("latency_ms")},
         )
 
+    # ---- voice adaptation methods ----
+    def _register_adaptation(self) -> None:
+        self.register("get_adaptation", lambda p: self.adaptation.snapshot())
+        self.register("learn_correction", self._learn_correction_method)
+        self.register("clear_adaptation", self._clear_adaptation)
+        self.register("calibration_phrases", lambda p: {"phrases": self.adaptation.snapshot()["calibration_phrases"]})
+        self.register("start_calibration", self._start_calibration)
+        self.register("finish_calibration", self._finish_calibration)
+        self.register("start_training_sample", self._start_training_sample)
+        self.register("finish_training_sample", self._finish_training_sample)
+        self.register("delete_training_sample", self._delete_training_sample)
+
+    def _learn_correction_method(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        intended = params.get("intended", "")
+        heard = params.get("heard") or self._last_inserted_text or self._last_dictation_text
+        result = self.adaptation.learn_correction(heard, intended, source=params.get("source", "manual"))
+        emit_event("correction_learned", result)
+        return result
+
+    def _clear_adaptation(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        snapshot = self.adaptation.clear()
+        emit_event("adaptation_updated", snapshot)
+        return snapshot
+
+    def _delete_training_sample(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        snapshot = self.adaptation.delete_training(params.get("id", ""))
+        emit_event("adaptation_updated", snapshot)
+        return snapshot
+
+    def _start_calibration(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        expected = (params.get("expected") or "").strip()
+        if not expected:
+            raise RpcError("start_calibration requires 'expected'")
+        self._calibration_expected = expected
+        return self.start_recording(params)
+
+    def _finish_calibration(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        result = self.stop_recording({})
+        expected = self._calibration_expected
+        self._calibration_expected = ""
+        learned = self.adaptation.record_calibration(expected, result.get("raw_text") or result.get("text", ""))
+        out = {**result, "calibration": learned}
+        emit_event("adaptation_updated", self.adaptation.snapshot())
+        return out
+
+    def _learn_correction_flow(self) -> None:
+        heard = self._last_inserted_text or self._last_dictation_text
+        if not heard:
+            emit_event("learn_unavailable", {"reason": "No previous dictation to learn from"})
+            return
+
+        try:
+            self.hotkeys.set_injecting(True)
+            selection = self.clipboard.capture_selection()
+        finally:
+            self.hotkeys.set_injecting(False)
+
+        intended = selection.strip() or self.clipboard.get_text().strip()
+        if not intended:
+            emit_event("learn_unavailable", {"reason": "Select corrected text or copy it first"})
+            return
+
+        result = self.adaptation.learn_correction(heard, intended, source="hotkey")
+        emit_event("correction_learned", result)
+
+    def _start_training_sample(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        kind = params.get("kind") if params.get("kind") in {"word", "trigger"} else "word"
+        spoken = (params.get("spoken") or "").strip()
+        output = (params.get("output") or spoken).strip()
+        if not spoken or not output:
+            raise RpcError("start_training_sample requires 'spoken' and 'output'")
+        trigger_type = params.get("trigger_type") if params.get("trigger_type") in {"autoreplace", "autofill"} else "autoreplace"
+        self._train_pending = {"kind": kind, "spoken": spoken, "output": output, "trigger_type": trigger_type}
+        return self.start_recording(params)
+
+    def _finish_training_sample(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._train_pending:
+            raise RpcError("No active training sample")
+        result = self.stop_recording({})
+        pending = self._train_pending
+        self._train_pending = {}
+        heard = result.get("raw_text") or result.get("text", "")
+        learned = self.adaptation.record_training(
+            pending.get("kind", "word"),
+            pending.get("spoken", ""),
+            pending.get("output", ""),
+            heard,
+            pending.get("trigger_type", "autoreplace"),
+        )
+        out = {**result, "training": learned}
+        emit_event("adaptation_updated", self.adaptation.snapshot())
+        emit_event("training_sample_saved", learned)
+        return out
+
+    # ---- transcription history methods ----
+    def _register_history(self) -> None:
+        self.register("get_transcription_history", self._get_transcription_history)
+        self.register("delete_transcription_history", self._delete_transcription_history)
+        self.register("clear_transcription_history", self._clear_transcription_history)
+
+    def _record_history(self, text: str, action: str = "") -> None:
+        try:
+            result = self.history.record(text, action=action)
+            if result.get("ok"):
+                emit_event("history_updated", self.history.snapshot())
+        except Exception as exc:  # noqa: BLE001
+            logutil.warn(f"history record failed: {exc}")
+
+    def _get_transcription_history(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self.history.snapshot(params.get("limit", 24))
+
+    def _delete_transcription_history(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        snapshot = self.history.delete(params.get("id", ""))
+        emit_event("history_updated", snapshot)
+        return snapshot
+
+    def _clear_transcription_history(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        snapshot = self.history.clear()
+        emit_event("history_updated", snapshot)
+        return snapshot
+
 
 def _empty_transcription(duration: float, reason: str, message: str = "", **extra) -> Dict[str, Any]:
     return {
@@ -506,3 +684,53 @@ def _silence_hallucination(text: str, raw_levels: Dict[str, Any]) -> bool:
         float(raw_levels.get("rms", 0.0)) < 0.0008
         and float(raw_levels.get("peak", 0.0)) < 0.006
     )
+
+
+def _format_transcript_text(text: str, *, capitalization: bool = True, punctuation: bool = True) -> str:
+    out = re.sub(r"\s+", " ", text or "").strip()
+    if not out:
+        return ""
+    if punctuation:
+        out = _apply_spoken_punctuation(out)
+    else:
+        out = re.sub(r"[.,!?;:]+", "", out)
+    if not capitalization:
+        return out.lower()
+    if out:
+        out = out[:1].upper() + out[1:]
+    return out
+
+
+_SPOKEN_PUNCTUATION = (
+    ("exclamation point", "!"),
+    ("exclamation mark", "!"),
+    ("question mark", "?"),
+    ("comma", ","),
+    ("period", "."),
+    ("full stop", "."),
+    ("colon", ":"),
+    ("semicolon", ";"),
+    ("semi colon", ";"),
+    ("dash", "-"),
+    ("hyphen", "-"),
+    ("new paragraph", "\n\n"),
+    ("new line", "\n"),
+    ("newline", "\n"),
+)
+
+
+def _apply_spoken_punctuation(text: str) -> str:
+    out = text
+    for phrase, mark in _SPOKEN_PUNCTUATION:
+        if mark.startswith("\n"):
+            out = re.sub(rf"\s*\b{re.escape(phrase)}\b\s*", mark, out, flags=re.IGNORECASE)
+        else:
+            out = re.sub(rf"\s+\b{re.escape(phrase)}\b", mark, out, flags=re.IGNORECASE)
+            out = re.sub(rf"\b{re.escape(phrase)}\b", mark, out, flags=re.IGNORECASE)
+    out = re.sub(r"\s+([,.;:!?])", r"\1", out)
+    out = re.sub(r"([,;:!?])(?=\S)", r"\1 ", out)
+    out = re.sub(r"\.(?=\S)", ". ", out)
+    out = re.sub(r"\s+-\s+", " - ", out)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n[ \t]+", "\n", out)
+    return out.strip()

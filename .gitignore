@@ -2,6 +2,8 @@
 node_modules/
 python/.venv/
 python/venv/
+python/runtime/
+.build-runtime/
 
 # Models (downloaded at runtime — never commit, can be multi-GB)
 models/

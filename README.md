@@ -145,6 +145,7 @@ how to produce a fully self-contained installer.
 | Push-to-talk | Windows/Linux: `Ctrl+Space` (hold), macOS: `Option` (hold) | Hold to record, release to transcribe + paste |
 | Toggle recording | Windows/Linux: `Ctrl+Shift+Space`, macOS: `Option+Space` | Press to start/stop; auto-clarifies before paste |
 | Clarify | Windows/Linux: `Ctrl+Alt+K`, macOS: `Ctrl+Option+K` | Polish selected text (or clipboard) in place |
+| Learn correction | Windows/Linux: `Ctrl+Alt+L`, macOS: `Ctrl+Option+L` | Learn selected corrected text from the last dictation |
 | Cancel | `Escape` | Abort an in-flight recording, transcription, or Clarify without inserting anything |
 
 > The spec's `Ctrl+Fn` combos aren't usable — the `Fn` key is handled in

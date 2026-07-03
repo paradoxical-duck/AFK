@@ -38,16 +38,32 @@ def local_asr_dir() -> Path:
 
     Search order:
       1. $AFK_ASR_DIR (explicit override)
-      2. <repo>/models/parakeet-v3   (handy for development)
-      3. <models_dir>/parakeet-v3    (alongside other app models)
+      2. <installed resources>/models/parakeet-v3
+      3. <repo>/models/parakeet-v3   (handy for development)
+      4. <models_dir>/parakeet-v3    (alongside other app models)
+      5. Hugging Face cache snapshot from the official ONNX repo
     """
     env = os.environ.get("AFK_ASR_DIR")
     if env:
         return Path(env)
-    repo_local = Path(__file__).resolve().parents[2] / "models" / "parakeet-v3"
-    if repo_local.exists():
-        return repo_local
+    for candidate in _local_asr_candidates():
+        if _has_required_asr_files(candidate):
+            return candidate
     return models_dir() / "parakeet-v3"
+
+
+def _local_asr_candidates() -> tuple[Path, ...]:
+    root = Path(__file__).resolve().parents[2]
+    model_root = models_dir()
+    return (
+        root / "models" / "parakeet-v3",
+        model_root / "parakeet-v3",
+        model_root
+        / "hub"
+        / "models--istupakov--parakeet-tdt-0.6b-v3-onnx"
+        / "snapshots"
+        / "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
+    )
 
 
 # Files onnx-asr needs for the int8 Parakeet model loaded from a local path.
@@ -57,6 +73,11 @@ LOCAL_ASR_REQUIRED = (
     "vocab.txt",
     "config.json",
 )
+
+
+def _has_required_asr_files(path: Path) -> bool:
+    return path.exists() and all((path / name).exists() for name in LOCAL_ASR_REQUIRED)
+
 
 # Official NVIDIA NeMo checkpoint filename.
 NEMO_CHECKPOINT = "parakeet-tdt-0.6b-v3.nemo"
@@ -103,6 +124,14 @@ def stats_path() -> Path:
     return data_dir() / "statistics.json"
 
 
+def adaptation_path() -> Path:
+    return data_dir() / "adaptation.json"
+
+
+def history_path() -> Path:
+    return data_dir() / "transcriptions.json"
+
+
 # ---- Model identifiers (used from Phase 2/4 onward) ----
 PARAKEET_MODEL = "nemo-parakeet-tdt-0.6b-v3"
 GEMMA_SHORT_MODEL = "gemma-3-270m-it"
@@ -110,8 +139,8 @@ GEMMA_LONG_MODEL = "gemma-4-e2b-it"
 
 # Default word-count threshold for short vs. long clarification model.
 # The 270M model is fast but too small for sentence-level grammar cleanup, so
-# route normal dictation/Clarify requests to Gemma 4 by default.
-DEFAULT_WORD_THRESHOLD = 4
+# route only long-form text to Gemma 4 by default.
+DEFAULT_WORD_THRESHOLD = 100
 
 # Clarify model GGUF filenames + their Hugging Face source repos.
 CLARIFY_SHORT_GGUF = "gemma-3-270m-Q8_0.gguf"

@@ -10,7 +10,7 @@
  *   Backend entry: <repo>/python/main.py
  *
  * Production (packaged):
- *   - Bundled interpreter at resources/python/.venv (or resources/python/runtime)
+ *   - Bundled interpreter at resources/python/runtime
  *   Backend entry: resources/python/main.py
  */
 
@@ -80,15 +80,26 @@ function findSystemPython() {
 function resolvePython() {
   const root = pythonRoot();
 
-  // 1. Bundled / project virtual environment.
+  // Production installers must use the embedded runtime. A venv created on a
+  // developer machine is not portable on Windows because pyvenv.cfg contains
+  // absolute base-interpreter paths.
+  const runtimeWin = path.join(root, 'runtime', 'python.exe');
+  const runtimeNix = path.join(root, 'runtime', 'bin', 'python');
+  if (isPackaged()) {
+    if (exists(runtimeWin)) return { command: runtimeWin, args: [] };
+    if (exists(runtimeNix)) return { command: runtimeNix, args: [] };
+    return findSystemPython();
+  }
+
+  // 1. Development virtual environment.
   const venvPythonWin = path.join(root, '.venv', 'Scripts', 'python.exe');
   const venvPythonNix = path.join(root, '.venv', 'bin', 'python');
   if (exists(venvPythonWin)) return { command: venvPythonWin, args: [] };
   if (exists(venvPythonNix)) return { command: venvPythonNix, args: [] };
 
-  // 2. Embedded runtime shipped with the installer.
-  const runtimeWin = path.join(root, 'runtime', 'python.exe');
+  // 2. Embedded runtime, useful for smoke-testing packaged resources locally.
   if (exists(runtimeWin)) return { command: runtimeWin, args: [] };
+  if (exists(runtimeNix)) return { command: runtimeNix, args: [] };
 
   // 3. System Python fallback (dev machines / non-self-contained packages).
   return findSystemPython();

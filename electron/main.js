@@ -39,8 +39,18 @@ let tray = null;
 let bridge = null;
 let isQuitting = false;
 let overlayHideTimer = null;
+let overlayReady = false;
+let pendingOverlayPayload = null;
 
 const DEV = !!process.env.AFK_DEV;
+const APP_USER_MODEL_ID = 'com.afk.app';
+const APP_ICON_PATH = path.join(__dirname, '..', 'assets', 'icon.ico');
+const TRAY_ICON_PATH = path.join(__dirname, '..', 'assets', 'tray.png');
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
+app.setName('AFK');
 
 function createWindow() {
   if (mainWindow) {
@@ -57,7 +67,7 @@ function createWindow() {
     show: false,
     backgroundColor: '#0f1115',
     title: 'AFK',
-    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
+    icon: APP_ICON_PATH,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -110,6 +120,7 @@ function positionOverlay() {
 function createOverlayWindow() {
   if (overlayWindow && !overlayWindow.isDestroyed()) return;
 
+  overlayReady = false;
   overlayWindow = new BrowserWindow({
     width: 460,
     height: 78,
@@ -136,12 +147,26 @@ function createOverlayWindow() {
 
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  overlayWindow.webContents.on('did-finish-load', () => {
+    overlayReady = true;
+    if (pendingOverlayPayload) {
+      overlayWindow.webContents.send('overlay:state', pendingOverlayPayload);
+    }
+  });
+  overlayWindow.webContents.on('render-process-gone', (_event, details) => {
+    logger.warn(`Overlay renderer gone: ${details && details.reason ? details.reason : 'unknown'}`);
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.destroy();
+  });
   overlayWindow.loadFile(path.join(__dirname, '..', 'ui', 'overlay.html'));
-  overlayWindow.on('closed', () => { overlayWindow = null; });
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+    overlayReady = false;
+  });
   positionOverlay();
 }
 
 function setOverlayState(state, payload = {}) {
+  const overlayPayload = { state, ...payload };
   createOverlayWindow();
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   if (overlayHideTimer) {
@@ -149,12 +174,15 @@ function setOverlayState(state, payload = {}) {
     overlayHideTimer = null;
   }
   positionOverlay();
-  overlayWindow.webContents.send('overlay:state', { state, ...payload });
+  pendingOverlayPayload = overlayPayload;
   if (state === 'hidden') {
     overlayWindow.hide();
     return;
   }
   overlayWindow.showInactive();
+  if (overlayReady) {
+    overlayWindow.webContents.send('overlay:state', overlayPayload);
+  }
 }
 
 function hideOverlaySoon(delayMs = 1800) {
@@ -165,10 +193,10 @@ function hideOverlaySoon(delayMs = 1800) {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, '..', 'assets', 'tray.png');
   let image;
   try {
-    image = nativeImage.createFromPath(iconPath);
+    image = nativeImage.createFromPath(TRAY_ICON_PATH);
+    if (image.isEmpty()) image = nativeImage.createFromPath(APP_ICON_PATH);
     if (image.isEmpty()) image = nativeImage.createEmpty();
   } catch (_) {
     image = nativeImage.createEmpty();
@@ -252,7 +280,7 @@ function startBackend() {
       setOverlayState('done', { label: 'Pasted' });
       hideOverlaySoon(900);
     } else if (event === 'copied') {
-      setOverlayState('done', { label: 'Copied' });
+      setOverlayState('done', { label: 'Copied to clipboard' });
       hideOverlaySoon(1200);
     } else if (event === 'clarify_started') {
       setOverlayState('clarifying', { label: 'Clarifying', sub: 'Polishing selected text locally' });
@@ -277,7 +305,15 @@ function registerIpc() {
   // Generic pass-through to the Python backend.
   ipcMain.handle('afk:call', async (_evt, { method, params }) => {
     if (!bridge) throw new Error('Backend not initialised');
-    const longCalls = new Set(['load_asr', 'stop_recording', 'finish_recording', 'transcribe', 'clarify']);
+    const longCalls = new Set([
+      'load_asr',
+      'stop_recording',
+      'finish_recording',
+      'finish_training_sample',
+      'finish_calibration',
+      'transcribe',
+      'clarify'
+    ]);
     return bridge.call(method, params || {}, longCalls.has(method) ? 10 * 60 * 1000 : undefined);
   });
 

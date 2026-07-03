@@ -1,7 +1,7 @@
 {
   "name": "afk",
   "productName": "AFK",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "AFK - privacy-first, fully-local AI speech-to-text for desktop.",
   "author": {
     "name": "pachisiav11"
@@ -22,7 +22,8 @@
   "devDependencies": {
     "cross-env": "^7.0.3",
     "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "rcedit": "^5.0.2"
   },
   "dependencies": {
     "auto-launch": "^5.0.6"
@@ -30,11 +31,13 @@
   "build": {
     "appId": "com.afk.app",
     "productName": "AFK",
+    "executableName": "AFK",
+    "compression": "store",
     "directories": {
       "output": "installer/dist",
       "buildResources": "assets"
     },
-    "afterPack": "scripts/after-pack-mac.js",
+    "afterPack": "scripts/after-pack.js",
     "files": [
       "electron/**/*",
       "ui/**/*",
@@ -48,6 +51,9 @@
         "to": "python",
         "filter": [
           "**/*",
+          "!**/.venv/**",
+          "!**/venv/**",
+          "!runtime/Lib/site-packages/bin/**",
           "!**/__pycache__/**",
           "!**/*.pyc"
         ]
@@ -61,6 +67,8 @@
       }
     ],
     "win": {
+      "compression": "store",
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",
@@ -90,12 +98,16 @@
       "sign": false
     },
     "nsis": {
-      "oneClick": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AFK"
+      "shortcutName": "AFK",
+      "useZip": false
     }
   }
 }

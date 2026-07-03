@@ -11,7 +11,7 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">A</div>
+        <img class="brand-mark" src="../assets/icon.png" alt="">
         <div class="brand-text">
           <span class="brand-name">AFK</span>
           <span class="brand-sub">local dictation</span>
@@ -24,6 +24,9 @@
         </button>
         <button class="nav-item" data-page="statistics" aria-label="Statistics">
           <span class="nav-icon">&#9638;</span><span>Statistics</span>
+        </button>
+        <button class="nav-item" data-page="train" aria-label="Train">
+          <span class="nav-icon">&#9679;</span><span>Train</span>
         </button>
         <button class="nav-item" data-page="settings" aria-label="Settings">
           <span class="nav-icon">&#9881;</span><span>Settings</span>
@@ -46,7 +49,7 @@
         <header class="page-head">
           <div>
             <h1>Dictation</h1>
-            <p class="page-sub">Local speech, cleanup, and paste in one focused console.</p>
+            <p class="page-sub">Local speech, cleanup, history, and training in one focused console.</p>
           </div>
           <div class="head-status">
             <span class="status-pill" id="asrStatus">Model: ...</span>
@@ -54,27 +57,13 @@
           </div>
         </header>
 
-        <div class="home-grid">
-          <section class="card record-card" aria-labelledby="recordTitle">
-            <div class="record-state" id="recordState">
-              <div class="record-orb" id="recordOrb" aria-hidden="true">
-                <span></span><span></span><span></span>
-              </div>
-              <div class="record-text">
-                <span class="section-kicker" id="recordTitle">Voice input</span>
-                <span class="record-status" id="recordStatus">Idle</span>
-                <span class="record-timer" id="recordTimer">00:00</span>
-              </div>
-            </div>
+        <div class="home-dashboard">
+          <section class="home-stats" id="homeStats" aria-label="Key statistics">
+            <div class="empty-hint">Statistics will appear after your first dictation.</div>
+          </section>
 
-            <div class="transcription" id="transcription">
-              <span class="placeholder">Your transcription will appear here...</span>
-            </div>
-
-            <div class="record-actions">
-              <button class="btn btn-primary" id="recordBtn">Start recording</button>
-              <button class="btn btn-quiet" id="loadAsrBtn">Load speech model</button>
-            </div>
+          <section class="card home-chart" id="homeChart" aria-label="Dictation graph">
+            <div class="empty-hint">Your activity graph will appear after your first dictation.</div>
           </section>
 
           <section class="card info-card" aria-label="Current setup">
@@ -98,19 +87,90 @@
               <span class="info-label">Clarify</span>
               <span class="info-value keycap" id="clarifyHotkey">-</span>
             </div>
+            <div class="info-row">
+              <span class="info-label">Learn</span>
+              <span class="info-value keycap" id="learnHotkey">-</span>
+            </div>
           </section>
 
-          <section class="card clarify-card" aria-labelledby="clarifyTitle">
-            <div class="card-title" id="clarifyTitle">
-              <span>Clarify</span>
-              <span class="status-pill" id="clarifyMeta"></span>
+          <section class="card history-card" aria-labelledby="historyTitle">
+            <div class="card-title" id="historyTitle">
+              <span>Previous transcriptions</span>
+              <button class="btn btn-quiet" id="clearHistoryBtn">Clear history</button>
             </div>
-            <textarea id="clarifyInput" class="clarify-input" rows="3" placeholder="Type or paste text to polish..."></textarea>
+            <div class="history-list" id="historyList">
+              <div class="empty-hint">No transcriptions yet.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="page" id="page-train">
+        <header class="page-head">
+          <div>
+            <h1>Train</h1>
+            <p class="page-sub">Teach AFK your words, names, handles, and spoken shortcuts.</p>
+          </div>
+          <div class="head-status">
+            <span class="status-pill" id="trainSummary">0 samples</span>
+          </div>
+        </header>
+
+        <div class="train-grid">
+          <section class="card train-card" aria-labelledby="trainWordTitle">
+            <div class="card-title" id="trainWordTitle">
+              <span>Word training</span>
+              <span class="status-pill">Parakeet adapter</span>
+            </div>
+            <div class="train-fields">
+              <label>
+                <span>Word or phrase AFK should recognize</span>
+                <input type="text" id="trainWordInput" spellcheck="false">
+              </label>
+            </div>
             <div class="record-actions">
-              <button class="btn" id="clarifyBtn">Clarify</button>
+              <button class="btn" id="trainWordStartBtn">Record word</button>
+              <button class="btn btn-primary" id="trainWordFinishBtn">Finish and learn</button>
             </div>
-            <div class="transcription clarify-output" id="clarifyOutput">
-              <span class="placeholder">Polished text appears here...</span>
+            <div class="training-status" id="trainWordStatus">Type a word, record yourself saying it, then AFK maps Parakeet's heard text to your intended word.</div>
+          </section>
+
+          <section class="card train-card" aria-labelledby="trainTriggerTitle">
+            <div class="card-title" id="trainTriggerTitle">
+              <span>Triggers</span>
+              <span class="status-pill">Text expansion</span>
+            </div>
+            <div class="train-fields">
+              <label>
+                <span>When I say</span>
+                <input type="text" id="trainTriggerInput" spellcheck="false">
+              </label>
+              <label>
+                <span>Output this</span>
+                <input type="text" id="trainOutputInput" spellcheck="false">
+              </label>
+              <label>
+                <span>Trigger type</span>
+                <select id="trainTriggerType">
+                  <option value="autofill">Autofill</option>
+                  <option value="autoreplace">Autoreplace</option>
+                </select>
+              </label>
+            </div>
+            <div class="record-actions">
+              <button class="btn" id="trainTriggerStartBtn">Record trigger</button>
+              <button class="btn btn-primary" id="trainTriggerFinishBtn">Finish and learn</button>
+            </div>
+            <div class="training-status" id="trainTriggerStatus">Record the spoken trigger once. Future transcripts replace that trigger with the output text.</div>
+          </section>
+
+          <section class="card train-ledger" aria-labelledby="trainLedgerTitle">
+            <div class="card-title" id="trainLedgerTitle">
+              <span>Training memory</span>
+              <button class="btn btn-quiet" id="clearTrainingBtn">Clear training</button>
+            </div>
+            <div class="training-list" id="trainingList">
+              <div class="empty-hint">No training samples yet.</div>
             </div>
           </section>
         </div>

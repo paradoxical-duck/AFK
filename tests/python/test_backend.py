@@ -40,6 +40,10 @@ class TestDispatch(unittest.TestCase):
     def test_settings_roundtrip(self):
         before = self.app.dispatch("get_settings", {})
         self.assertIn("hotkeys", before)
+        self.assertEqual(before["word_count_threshold"], 100)
+        self.assertTrue(before["auto_capitalization"])
+        self.assertTrue(before["auto_punctuation"])
+        self.assertTrue(before["training_corrections"])
         updated = self.app.dispatch("update_settings", {"patch": {"word_count_threshold": 42}})
         self.assertEqual(updated["word_count_threshold"], 42)
         # nested merge preserves siblings
@@ -49,6 +53,26 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(updated2["hotkeys"]["clarify"], "Ctrl+Alt+C")
         expected_ptt = "Option" if sys.platform == "darwin" else "Ctrl+Space"
         self.assertEqual(updated2["hotkeys"]["push_to_talk"], expected_ptt)
+
+    def test_training_methods_registered(self):
+        methods = self.app.dispatch("list_methods", {})
+        self.assertIn("start_training_sample", methods)
+        self.assertIn("finish_training_sample", methods)
+
+    def test_transcript_formatting_helper(self):
+        from afk_backend.app import _format_transcript_text
+
+        self.assertEqual(_format_transcript_text("hello there.", capitalization=True, punctuation=True), "Hello there.")
+        self.assertEqual(_format_transcript_text("Hello there.", capitalization=False, punctuation=True), "hello there.")
+        self.assertEqual(_format_transcript_text("Hello, there!", capitalization=True, punctuation=False), "Hello there")
+        self.assertEqual(
+            _format_transcript_text("hello comma there exclamation point", capitalization=True, punctuation=True),
+            "Hello, there!",
+        )
+        self.assertEqual(
+            _format_transcript_text("first line new line second line", capitalization=True, punctuation=True),
+            "First line\nsecond line",
+        )
 
     def test_unknown_method(self):
         from afk_backend.rpc import RpcError

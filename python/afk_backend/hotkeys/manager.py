@@ -6,11 +6,12 @@ the backend (pynput), co-located with the audio/ASR code for the lowest
 possible latency on the dictation hot path.
 
 Matching uses *exact* modifier sets so overlapping combos disambiguate:
-  Ctrl+Space          -> push-to-talk   (Ctrl only)
+  Ctrl+Space          -> push-to-talk   (Ctrl)
   Ctrl+Shift+Space    -> toggle         (Ctrl+Shift)
   Ctrl+Alt+K          -> clarify        (Ctrl+Alt)
   Option              -> push-to-talk   (macOS, modifier-only)
   Option+Space        -> toggle         (macOS)
+  Ctrl+Alt+L          -> learn correction from the last dictation
 
 Heavy work (recording/transcription/paste) must be dispatched off the listener
 thread by the callbacks; this class only detects and routes events.
@@ -99,7 +100,7 @@ def _norm(key) -> Tuple[str, str]:
 
 class HotkeyManager:
     def __init__(self, callbacks: Dict[str, Callable[[], None]]):
-        """callbacks: keys 'ptt_start','ptt_stop','toggle','clarify','cancel'."""
+        """callbacks: keys 'ptt_start','ptt_stop','toggle','clarify','learn_correction','cancel'."""
         self._cb = callbacks
         self._listener = None
         self._lock = threading.Lock()
@@ -121,6 +122,7 @@ class HotkeyManager:
             ("push_to_talk", "option" if _is_macos() else "ctrl+space"),
             ("toggle", "option+space" if _is_macos() else "ctrl+shift+space"),
             ("clarify", "ctrl+alt+k"),
+            ("learn_correction", "ctrl+alt+l"),
         ):
             parsed = parse_combo(hotkeys.get(action, default))
             if parsed:
@@ -166,7 +168,7 @@ class HotkeyManager:
             self._pressed_mods.add(token)
             self._evaluate_ptt()
             return
-        # Escape always cancels whatever's in progress (dictation or
+        # Escape always cancels whatever is in progress (dictation or
         # Clarify), regardless of which modifiers happen to be held.
         if token == "esc":
             if not self._esc_fired:
@@ -242,7 +244,7 @@ class HotkeyManager:
     def _evaluate_edge(self):
         if self._fired_edge or self._main_down is None:
             return
-        for action in ("toggle", "clarify"):
+        for action in ("toggle", "clarify", "learn_correction"):
             combo = self._bindings.get(action)
             if not combo:
                 continue

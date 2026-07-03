@@ -34,9 +34,11 @@ else:
 
 from .. import logutil
 
-# Small delays let the target app observe clipboard changes / key events.
-_CLIPBOARD_SETTLE = 0.015
-_KEY_SETTLE = 0.01
+# Delays let Electron/Chromium and sandboxed text boxes observe clipboard
+# changes before AFK restores or touches the clipboard again.
+_CLIPBOARD_SETTLE = 0.08
+_KEY_SETTLE = 0.02
+_PASTE_SETTLE = 0.25
 
 
 class Clipboard:
@@ -129,8 +131,8 @@ class Clipboard:
         self.set_text(text)
         time.sleep(_CLIPBOARD_SETTLE)
         self.paste()
+        time.sleep(_PASTE_SETTLE)
         if restore:
-            time.sleep(_CLIPBOARD_SETTLE)
             try:
                 self.set_text(prior or "")
             except Exception:
@@ -167,7 +169,7 @@ class Clipboard:
 
     def replace_selection(self, text: str) -> bool:
         """Replace the currently selected text by pasting over it."""
-        return self.paste_text(text, restore=True)
+        return self.paste_text(text, restore=False)
 
     def replace_selection_typed(self, text: str) -> bool:
         """Replace the currently selected text by deleting it and typing the

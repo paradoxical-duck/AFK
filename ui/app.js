@@ -8,11 +8,50 @@ let recTimer = null;
 let recStart = 0;
 let _settingsCache = null;
 let _platform = '';
+let activeTrainingKind = null;
 
 function defaultHotkeys() {
   return _platform === 'darwin'
-    ? { push_to_talk: 'Option', toggle: 'Option+Space', clarify: 'Ctrl+Option+K' }
-    : { push_to_talk: 'Ctrl+Space', toggle: 'Ctrl+Shift+Space', clarify: 'Ctrl+Alt+K' };
+    ? {
+        push_to_talk: 'Option',
+        toggle: 'Option+Space',
+        clarify: 'Ctrl+Option+K',
+        learn_correction: 'Ctrl+Option+L'
+      }
+    : {
+        push_to_talk: 'Ctrl+Space',
+        toggle: 'Ctrl+Shift+Space',
+        clarify: 'Ctrl+Alt+K',
+        learn_correction: 'Ctrl+Alt+L'
+      };
+}
+
+function hotkeyOptions() {
+  return _platform === 'darwin'
+    ? [
+        'Option',
+        'Option+Space',
+        'Ctrl+Option+K',
+        'Ctrl+Option+L',
+        'Ctrl+Option+D',
+        'Ctrl+Shift+K',
+        'Ctrl+Shift+L',
+        'Cmd+Shift+K',
+        'Cmd+Shift+L'
+      ]
+    : [
+        'Ctrl+Space',
+        'Ctrl+Shift+Space',
+        'Ctrl+Alt+Space',
+        'Ctrl+Alt+K',
+        'Ctrl+Shift+K',
+        'Ctrl+Alt+L',
+        'Ctrl+Shift+L',
+        'Ctrl+Alt+D',
+        'Ctrl+Shift+D',
+        'Ctrl+Alt+J',
+        'Ctrl+Shift+J'
+      ];
 }
 
 function escapeHtml(value) {
@@ -24,6 +63,122 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function setText(sel, value) {
+  const el = $(sel);
+  if (el) el.textContent = value;
+}
+
+function selectedOptionLabel(select) {
+  const option = select.options[select.selectedIndex];
+  return option ? option.textContent : '';
+}
+
+function syncSelectControl(select) {
+  const shell = select.closest('.select-shell');
+  if (!shell) return;
+  const button = shell.querySelector('.select-button');
+  const menu = shell.querySelector('.select-menu');
+  if (button) button.querySelector('span').textContent = selectedOptionLabel(select);
+  if (!menu) return;
+  Array.from(menu.children).forEach((item) => {
+    const active = item.dataset.value === select.value;
+    item.classList.toggle('active', active);
+    item.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function closeSelects(exceptShell) {
+  $$('.select-shell.open').forEach((shell) => {
+    if (shell === exceptShell) return;
+    shell.classList.remove('open');
+    const button = shell.querySelector('.select-button');
+    if (button) button.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function rebuildSelectMenu(select) {
+  const shell = select.closest('.select-shell');
+  if (!shell) return;
+  const menu = shell.querySelector('.select-menu');
+  if (!menu) return;
+  menu.innerHTML = Array.from(select.options).map((option) =>
+    `<button type="button" class="select-option" role="option" data-value="${escapeHtml(option.value)}">${escapeHtml(option.textContent)}</button>`
+  ).join('');
+  syncSelectControl(select);
+}
+
+function enhanceSelect(select) {
+  if (!select || select.dataset.enhanced === 'true') {
+    if (select) rebuildSelectMenu(select);
+    return;
+  }
+  select.dataset.enhanced = 'true';
+  select.classList.add('native-select');
+  const shell = document.createElement('div');
+  shell.className = 'select-shell';
+  select.parentNode.insertBefore(shell, select);
+  shell.appendChild(select);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'select-button';
+  button.setAttribute('aria-haspopup', 'listbox');
+  button.setAttribute('aria-expanded', 'false');
+  button.innerHTML = `<span>${escapeHtml(selectedOptionLabel(select))}</span><i aria-hidden="true"></i>`;
+  const menu = document.createElement('div');
+  menu.className = 'select-menu';
+  menu.setAttribute('role', 'listbox');
+  shell.appendChild(button);
+  shell.appendChild(menu);
+  rebuildSelectMenu(select);
+
+  button.addEventListener('click', () => {
+    const open = !shell.classList.contains('open');
+    closeSelects(shell);
+    shell.classList.toggle('open', open);
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Escape'].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === 'Escape') {
+      closeSelects();
+      return;
+    }
+    if (!shell.classList.contains('open')) {
+      shell.classList.add('open');
+      button.setAttribute('aria-expanded', 'true');
+      return;
+    }
+    const options = Array.from(select.options);
+    const dir = event.key === 'ArrowUp' ? -1 : 1;
+    const next = Math.max(0, Math.min(options.length - 1, select.selectedIndex + dir));
+    select.value = options[next].value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    syncSelectControl(select);
+  });
+
+  menu.addEventListener('click', (event) => {
+    const item = event.target.closest('.select-option');
+    if (!item) return;
+    select.value = item.dataset.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    closeSelects();
+    syncSelectControl(select);
+    button.focus();
+  });
+
+  select.addEventListener('change', () => syncSelectControl(select));
+}
+
+function enhanceSelects(root = document) {
+  root.querySelectorAll('select').forEach(enhanceSelect);
+}
+
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.select-shell')) closeSelects();
+});
+
 // ---------- Navigation ----------
 function initNav() {
   $$('.nav-item').forEach((btn) => {
@@ -31,7 +186,9 @@ function initNav() {
       const page = btn.dataset.page;
       $$('.nav-item').forEach((b) => b.classList.toggle('active', b === btn));
       $$('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));
+      if (page === 'home') refreshHomeStats();
       if (page === 'statistics') refreshStatistics();
+      if (page === 'train') refreshTrain();
       if (page === 'settings') refreshSettings();
     });
   });
@@ -97,6 +254,7 @@ async function refreshMicrophones() {
     const cfg = await window.afk.call('get_settings', {});
     _settingsCache = cfg;
     sel.value = cfg.microphone || current || '';
+    enhanceSelect(sel);
   } catch (e) {
     // Backend may still be booting.
   }
@@ -118,18 +276,22 @@ async function refreshAsrStatus() {
 
 async function loadAsrModel() {
   const btn = $('#loadAsrBtn');
-  btn.disabled = true;
-  btn.textContent = 'Loading...';
-  $('#asrStatus').textContent = 'Speech: loading';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+  }
+  setText('#asrStatus', 'Speech: loading');
   try {
     const res = await window.afk.call('load_asr', {});
-    $('#asrStatus').textContent = `Speech: ${res.status || 'ready'}`;
+    setText('#asrStatus', `Speech: ${res.status || 'ready'}`);
   } catch (e) {
-    $('#asrStatus').textContent = 'Speech: error';
+    setText('#asrStatus', 'Speech: error');
     showTranscription(`ASR load failed: ${e.message || e}`);
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Load speech model';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Load speech model';
+    }
   }
 }
 
@@ -140,31 +302,37 @@ async function toggleRecord() {
       const device = $('#micSelect').value || null;
       await window.afk.call('start_recording', { device });
       isRecording = true;
-      btn.textContent = 'Stop and transcribe';
-      btn.classList.add('recording');
+      if (btn) {
+        btn.textContent = 'Stop and transcribe';
+        btn.classList.add('recording');
+      }
       return;
     }
 
-    btn.textContent = 'Transcribing...';
-    btn.disabled = true;
+    if (btn) {
+      btn.textContent = 'Transcribing...';
+      btn.disabled = true;
+    }
     const res = await window.afk.call('finish_recording', {});
     isRecording = false;
-    btn.classList.remove('recording');
+    if (btn) btn.classList.remove('recording');
     if (res && res.text) {
       const action = res.action === 'pasted' ? 'Pasted.' : 'Copied to clipboard.';
       showTranscription(res.text, action);
-      $('#recordStatus').textContent = res.action === 'pasted' ? 'Pasted' : 'Copied';
+      setText('#recordStatus', res.action === 'pasted' ? 'Pasted' : 'Copied');
     } else if (res && res.message) {
       showTranscription('', res.message);
     }
   } catch (e) {
     isRecording = false;
-    btn.classList.remove('recording');
+    if (btn) btn.classList.remove('recording');
     showTranscription(`Recording failed: ${e.message || e}`);
   } finally {
     if (!isRecording) {
-      btn.disabled = false;
-      btn.textContent = 'Start recording';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Start recording';
+      }
     }
     refreshAsrStatus();
   }
@@ -192,22 +360,29 @@ async function refreshClarifyStatus() {
 
 async function clarifyText() {
   const btn = $('#clarifyBtn');
-  const input = $('#clarifyInput').value.trim();
+  const inputEl = $('#clarifyInput');
+  const input = inputEl ? inputEl.value.trim() : '';
   if (!input) return;
-  btn.disabled = true;
-  btn.textContent = 'Clarifying...';
-  $('#clarifyMeta').textContent = '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Clarifying...';
+  }
+  setText('#clarifyMeta', '');
   try {
     const res = await window.afk.call('clarify', { text: input });
-    $('#clarifyOutput').textContent = res.text || '(no output)';
+    setText('#clarifyOutput', res.text || '(no output)');
     const model = res.model && res.model !== 'none' ? res.model : 'no model';
-    $('#clarifyMeta').textContent = `${res.words} words / ${model}` +
-      (res.latency_ms ? ` / ${res.latency_ms} ms` : '');
+    setText(
+      '#clarifyMeta',
+      `${res.words} words / ${model}` + (res.latency_ms ? ` / ${res.latency_ms} ms` : '')
+    );
   } catch (e) {
-    $('#clarifyOutput').textContent = `Clarify failed: ${e.message || e}`;
+    setText('#clarifyOutput', `Clarify failed: ${e.message || e}`);
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Clarify';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Clarify';
+    }
     refreshClarifyStatus();
   }
 }
@@ -222,11 +397,13 @@ async function refreshHotkeys() {
     $('#pttHotkey').textContent = hk.push_to_talk || defaults.push_to_talk;
     $('#toggleHotkey').textContent = hk.toggle || defaults.toggle;
     $('#clarifyHotkey').textContent = hk.clarify || defaults.clarify;
+    $('#learnHotkey').textContent = hk.learn_correction || defaults.learn_correction;
   } catch (e) {
     const defaults = defaultHotkeys();
     $('#pttHotkey').textContent = defaults.push_to_talk;
     $('#toggleHotkey').textContent = defaults.toggle;
     $('#clarifyHotkey').textContent = defaults.clarify;
+    $('#learnHotkey').textContent = defaults.learn_correction;
   }
 }
 
@@ -300,7 +477,8 @@ function configuredHotkeys() {
   return [
     hk.push_to_talk || defaults.push_to_talk,
     hk.toggle || defaults.toggle,
-    hk.clarify || defaults.clarify
+    hk.clarify || defaults.clarify,
+    hk.learn_correction || defaults.learn_correction
   ];
 }
 
@@ -355,18 +533,133 @@ function statCard(value, label, accent) {
     `<div class="stat-label">${escapeHtml(label)}</div></div>`;
 }
 
+function homeStatCard(value, label, accent) {
+  return `<div class="home-stat"><strong${accent ? ' class="accent"' : ''}>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+}
+
+function barMeter(label, value, max, accent) {
+  const pct = Math.max(3, Math.min(100, max ? (Number(value || 0) / max) * 100 : 0));
+  return `<div class="bar-row"><span>${escapeHtml(label)}</span><div class="bar-track"><i class="${accent ? 'accent' : ''}" style="width:${pct}%"></i></div><b>${escapeHtml(value)}</b></div>`;
+}
+
+function sparkBars(values) {
+  const max = Math.max(1, ...values.map((v) => Number(v || 0)));
+  return `<div class="spark-bars">${values.map((v, i) => {
+    const h = Math.max(12, Math.round((Number(v || 0) / max) * 76));
+    return `<span style="height:${h}px" title="Bucket ${i + 1}: ${escapeHtml(v)}"></span>`;
+  }).join('')}</div>`;
+}
+
+async function refreshHomeStats() {
+  const box = $('#homeStats');
+  const chart = $('#homeChart');
+  if (!box) return;
+  try {
+    const [s, adaptation] = await Promise.all([
+      window.afk.call('get_statistics', {}),
+      window.afk.call('get_adaptation', {})
+    ]);
+    const saved = fmtDuration((s.words.today / (s.typing_wpm_assumed || 40)) * 60);
+    box.innerHTML =
+      homeStatCard(s.words.today.toLocaleString(), 'Words today', true) +
+      homeStatCard(s.words.week.toLocaleString(), 'Words this week') +
+      homeStatCard(saved, 'Typing saved today', true) +
+      homeStatCard((adaptation.training_count || 0).toLocaleString(), 'Training samples');
+    if (chart) {
+      const wordMax = Math.max(1, s.words.today, s.words.week, s.words.month, s.words.lifetime);
+      const spark = [
+        s.words.today || 0,
+        s.words.week || 0,
+        s.words.month || 0,
+        s.recordings || 0,
+        Math.max(1, Math.round((s.avg_transcription_latency_ms || 0) / 100)),
+        adaptation.trigger_count || 0
+      ];
+      chart.innerHTML =
+        `<div class="chart-title">Dictation pulse</div>
+        ${sparkBars(spark)}
+        <div class="home-bars">
+          ${barMeter('Today', s.words.today, wordMax, true)}
+          ${barMeter('Week', s.words.week, wordMax, false)}
+          ${barMeter('Month', s.words.month, wordMax, false)}
+        </div>`;
+    }
+  } catch (e) {
+    box.innerHTML = '<div class="empty-hint">Statistics unavailable while the backend starts.</div>';
+    if (chart) chart.innerHTML = '<div class="empty-hint">Activity graph unavailable while the backend starts.</div>';
+  }
+}
+
+function historyItem(item) {
+  const text = item.text || '';
+  const action = item.action === 'pasted' ? 'Pasted' : (item.action === 'copied' ? 'Copied' : 'Saved');
+  const date = item.created_at ? new Date(item.created_at).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }) : '';
+  return `<div class="history-item" data-history-id="${escapeHtml(item.id || '')}">
+    <div class="history-text">
+      <strong>${escapeHtml(action)}${date ? ` | ${escapeHtml(date)}` : ''}</strong>
+      <span>${escapeHtml(text)}</span>
+    </div>
+    <div class="history-actions">
+      <button class="icon-btn" data-copy-history="${escapeHtml(item.id || '')}" aria-label="Copy transcription">Copy</button>
+      <button class="icon-btn danger" data-delete-history="${escapeHtml(item.id || '')}" aria-label="Delete transcription">Delete</button>
+    </div>
+  </div>`;
+}
+
+async function refreshHistory() {
+  const list = $('#historyList');
+  if (!list) return;
+  try {
+    const history = await window.afk.call('get_transcription_history', { limit: 20 });
+    const items = history.items || [];
+    list.innerHTML = items.length
+      ? items.map(historyItem).join('')
+      : '<div class="empty-hint">No transcriptions yet.</div>';
+  } catch (e) {
+    list.innerHTML = '<div class="empty-hint">History unavailable while the backend starts.</div>';
+  }
+}
+
+async function copyHistoryItem(id) {
+  const item = $(`[data-history-id="${CSS.escape(id)}"] .history-text span`);
+  const text = item ? item.textContent : '';
+  if (!text) return;
+  await window.afk.call('set_clipboard', { text });
+}
+
+async function deleteHistoryItem(id) {
+  await window.afk.call('delete_transcription_history', { id });
+  refreshHistory();
+}
+
 async function refreshStatistics() {
   const grid = $('#statsGrid');
   try {
     const s = await window.afk.call('get_statistics', {});
     const todaySaved = (s.words.today / (s.typing_wpm_assumed || 40));
+    const wordMax = Math.max(1, s.words.today, s.words.week, s.words.month);
+    const latencyBuckets = [
+      Math.max(1, Math.round((s.avg_transcription_latency_ms || 0) / 100)),
+      s.clarifications || 0,
+      Math.max(1, Math.round((s.avg_clarify_latency_ms || 0) / 100)),
+      s.recordings || 0,
+      Math.max(1, s.streak_current || 0)
+    ];
     grid.innerHTML =
       `<section class="stats-section">
         <div class="stats-section-title">Words spoken</div>
-        <div class="stats-grid">
+        <div class="stats-grid stats-grid-featured">
           ${statCard(s.words.today.toLocaleString(), 'Today', true)}
-          ${statCard(s.words.week.toLocaleString(), 'This week')}
-          ${statCard(s.words.month.toLocaleString(), 'This month')}
+          <div class="stat-card chart-card">
+            ${barMeter('Today', s.words.today, wordMax, true)}
+            ${barMeter('Week', s.words.week, wordMax, false)}
+            ${barMeter('Month', s.words.month, wordMax, false)}
+          </div>
           ${statCard(s.words.lifetime.toLocaleString(), 'All time')}
         </div>
       </section>
@@ -386,6 +679,10 @@ async function refreshStatistics() {
           ${statCard(s.recordings.toLocaleString(), 'Total recordings')}
           ${statCard(fmtDuration(s.longest_recording_sec), 'Longest recording')}
           ${statCard(fmtDuration(s.avg_recording_sec), 'Average recording')}
+          <div class="stat-card chart-card">
+            <div class="chart-title">Activity pulse</div>
+            ${sparkBars(latencyBuckets)}
+          </div>
           ${statCard(fmtDuration(s.total_transcription_sec), 'Total transcription time')}
           ${statCard(`${s.avg_transcription_latency_ms} ms`, 'Average transcription latency')}
           ${statCard(s.clarifications.toLocaleString(), 'Clarify requests')}
@@ -395,6 +692,94 @@ async function refreshStatistics() {
   } catch (e) {
     grid.innerHTML = '<div class="empty-hint">Statistics unavailable while the backend starts.</div>';
   }
+}
+
+// ---------- Train ----------
+function trainingItem(item) {
+  const kind = item.kind === 'trigger' ? 'Trigger' : 'Word';
+  const mode = item.kind === 'trigger' && item.trigger_type === 'autofill' ? 'Autofill' : 'Autoreplace';
+  const heard = item.heard ? `Parakeet heard: ${item.heard}` : 'No audio sample captured';
+  return `<div class="training-item">
+    <div><strong>${escapeHtml(kind)}</strong><span>${escapeHtml(item.spoken || '')}</span>${item.kind === 'trigger' ? `<small>${escapeHtml(mode)}</small>` : ''}</div>
+    <div><b>${escapeHtml(item.output || '')}</b><small>${escapeHtml(heard)}</small></div>
+    <button class="icon-btn danger" data-delete-training="${escapeHtml(item.id || '')}" aria-label="Delete training sample">Delete</button>
+  </div>`;
+}
+
+async function refreshTrain() {
+  try {
+    const adaptation = await window.afk.call('get_adaptation', {});
+    $('#trainSummary').textContent = `${adaptation.training_count || 0} samples`;
+    const items = (adaptation.training || []).slice(-8).reverse();
+    $('#trainingList').innerHTML = items.length
+      ? items.map(trainingItem).join('')
+      : '<div class="empty-hint">No training samples yet.</div>';
+  } catch (e) {
+    $('#trainSummary').textContent = 'starting';
+    $('#trainingList').innerHTML = '<div class="empty-hint">Training unavailable while the backend starts.</div>';
+  }
+}
+
+async function startTrainSample(kind) {
+  const isTrigger = kind === 'trigger';
+  const spoken = (isTrigger ? $('#trainTriggerInput') : $('#trainWordInput')).value.trim();
+  const output = (isTrigger ? $('#trainOutputInput').value.trim() : spoken);
+  const status = isTrigger ? $('#trainTriggerStatus') : $('#trainWordStatus');
+  if (!spoken || !output) {
+    status.textContent = isTrigger ? 'Add both the spoken trigger and output first.' : 'Type the word or phrase first.';
+    return;
+  }
+  try {
+    activeTrainingKind = kind;
+    status.textContent = 'Recording... say it naturally once.';
+    await window.afk.call('start_training_sample', {
+      kind,
+      spoken,
+      output,
+      trigger_type: isTrigger ? ($('#trainTriggerType').value || 'autofill') : 'autoreplace',
+      device: $('#micSelect') ? ($('#micSelect').value || null) : null
+    });
+  } catch (e) {
+    activeTrainingKind = null;
+    status.textContent = `Training failed to start: ${e.message || e}`;
+  }
+}
+
+async function finishTrainSample(kind) {
+  const status = kind === 'trigger' ? $('#trainTriggerStatus') : $('#trainWordStatus');
+  try {
+    status.textContent = 'Transcribing sample and saving correction...';
+    const res = await window.afk.call('finish_training_sample', {});
+    activeTrainingKind = null;
+    const heard = (res && res.training && res.training.heard) || (res && res.text) || '';
+    status.textContent = heard ? `Saved. Parakeet heard "${heard}".` : 'Saved, but no speech was detected in that sample.';
+    refreshTrain();
+    refreshHomeStats();
+  } catch (e) {
+    activeTrainingKind = null;
+    status.textContent = `Training failed: ${e.message || e}`;
+  }
+}
+
+function initTrainControls() {
+  $('#trainWordStartBtn').addEventListener('click', () => startTrainSample('word'));
+  $('#trainWordFinishBtn').addEventListener('click', () => finishTrainSample('word'));
+  $('#trainTriggerStartBtn').addEventListener('click', () => startTrainSample('trigger'));
+  $('#trainTriggerFinishBtn').addEventListener('click', () => finishTrainSample('trigger'));
+  $('#clearTrainingBtn').addEventListener('click', async () => {
+    await window.afk.call('clear_adaptation', {});
+    $('#trainWordStatus').textContent = 'Training memory cleared.';
+    $('#trainTriggerStatus').textContent = 'Training memory cleared.';
+    refreshTrain();
+    refreshHomeStats();
+  });
+  $('#trainingList').addEventListener('click', async (event) => {
+    const btn = event.target.closest('[data-delete-training]');
+    if (!btn) return;
+    await window.afk.call('delete_training_sample', { id: btn.dataset.deleteTraining });
+    refreshTrain();
+    refreshHomeStats();
+  });
 }
 
 // ---------- Settings ----------
@@ -411,6 +796,13 @@ function toggleHtml(id, checked) {
   return `<label class="switch" aria-label="${escapeHtml(id)}"><input type="checkbox" id="${id}" ${checked ? 'checked' : ''}><span class="slider"></span></label>`;
 }
 
+function optionsHtml(options, selected) {
+  const all = options.includes(selected) || !selected ? options : [selected].concat(options);
+  return all.map((value) =>
+    `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`
+  ).join('');
+}
+
 async function refreshSettings() {
   const list = $('#settingsList');
   try {
@@ -423,6 +815,8 @@ async function refreshSettings() {
       ))
       .join('');
     const hk = cfg.hotkeys || {};
+    const defaults = defaultHotkeys();
+    const options = hotkeyOptions();
 
     list.innerHTML =
       settingRow('Microphone', 'Input device for dictation', `<select id="set-microphone">${micOpts}</select>`) +
@@ -431,15 +825,20 @@ async function refreshSettings() {
       settingRow('Launch minimized', 'Open directly into the system tray', toggleHtml('set-launch_minimized', cfg.launch_minimized)) +
       settingRow('Auto-paste', 'Paste dictation into the active app', toggleHtml('set-auto_paste', cfg.auto_paste)) +
       settingRow('Auto-clarify', 'Run grammar cleanup before paste', toggleHtml('set-auto_clarify', cfg.auto_clarify)) +
+      settingRow('Capitalization', 'Capitalize transcripts automatically', toggleHtml('set-auto_capitalization', cfg.auto_capitalization !== false)) +
+      settingRow('Punctuation', 'Keep punctuation from speech recognition', toggleHtml('set-auto_punctuation', cfg.auto_punctuation !== false)) +
+      settingRow('Training corrections', 'Apply words and triggers from the Train tab', toggleHtml('set-training_corrections', cfg.training_corrections !== false)) +
       settingRow('Word-count threshold', 'Use the long model above this number of words', `<input type="number" id="set-word_count_threshold" min="1" max="500" value="${escapeHtml(cfg.word_count_threshold)}">`) +
-      settingRow('Push-to-talk hotkey', 'Hold to record', `<input type="text" class="hotkey-input" id="hk-push_to_talk" value="${escapeHtml(hk.push_to_talk || '')}" spellcheck="false">`) +
-      settingRow('Toggle hotkey', 'Press once to start or stop', `<input type="text" class="hotkey-input" id="hk-toggle" value="${escapeHtml(hk.toggle || '')}" spellcheck="false">`) +
-      settingRow('Clarify hotkey', 'Polish selected text or clipboard', `<input type="text" class="hotkey-input" id="hk-clarify" value="${escapeHtml(hk.clarify || '')}" spellcheck="false">`) +
+      settingRow('Push-to-talk hotkey', 'Hold to record', `<select id="hk-push_to_talk">${optionsHtml(options, hk.push_to_talk || defaults.push_to_talk)}</select>`) +
+      settingRow('Toggle hotkey', 'Press once to start or stop', `<select id="hk-toggle">${optionsHtml(options, hk.toggle || defaults.toggle)}</select>`) +
+      settingRow('Clarify hotkey', 'Polish selected text or clipboard', `<select id="hk-clarify">${optionsHtml(options, hk.clarify || defaults.clarify)}</select>`) +
+      settingRow('Learn correction hotkey', 'Select corrected text after dictation', `<select id="hk-learn_correction">${optionsHtml(options, hk.learn_correction || defaults.learn_correction)}</select>`) +
       settingRow('Logging', 'Write diagnostic logs to disk', toggleHtml('set-logging', cfg.logging)) +
       settingRow('Developer mode', 'Enable extra diagnostics', toggleHtml('set-developer_mode', cfg.developer_mode)) +
       `<div class="settings-actions"><button class="btn" id="resetStatsBtn">Reset statistics</button></div>`;
 
     wireSettingControls();
+    enhanceSelects(list);
   } catch (e) {
     list.innerHTML = '<div class="empty-hint">Settings unavailable while the backend starts.</div>';
   }
@@ -455,6 +854,9 @@ function wireSettingControls() {
   patchToggle('set-launch_minimized', 'launch_minimized');
   patchToggle('set-auto_paste', 'auto_paste');
   patchToggle('set-auto_clarify', 'auto_clarify');
+  patchToggle('set-auto_capitalization', 'auto_capitalization');
+  patchToggle('set-auto_punctuation', 'auto_punctuation');
+  patchToggle('set-training_corrections', 'training_corrections');
   patchToggle('set-logging', 'logging');
   patchToggle('set-developer_mode', 'developer_mode');
 
@@ -466,10 +868,10 @@ function wireSettingControls() {
 
   const threshold = $('#set-word_count_threshold');
   threshold.addEventListener('change', () => {
-    saveSetting('word_count_threshold', parseInt(threshold.value, 10) || 60);
+    saveSetting('word_count_threshold', parseInt(threshold.value, 10) || 100);
   });
 
-  ['push_to_talk', 'toggle', 'clarify'].forEach((k) => {
+  ['push_to_talk', 'toggle', 'clarify', 'learn_correction'].forEach((k) => {
     const el = $('#hk-' + k);
     el.addEventListener('change', saveHotkeys);
   });
@@ -494,14 +896,15 @@ async function saveHotkeys() {
   const hotkeys = {
     push_to_talk: $('#hk-push_to_talk').value.trim(),
     toggle: $('#hk-toggle').value.trim(),
-    clarify: $('#hk-clarify').value.trim()
+    clarify: $('#hk-clarify').value.trim(),
+    learn_correction: $('#hk-learn_correction').value.trim()
   };
   try {
     const updated = await window.afk.call('set_hotkeys', { hotkeys });
     _settingsCache = { ...(_settingsCache || {}), hotkeys: updated };
     refreshHotkeys();
   } catch (e) {
-    $('#clarifyMeta').textContent = 'Hotkey save failed';
+    setText('#clarifyMeta', 'Hotkey save failed');
   }
 }
 
@@ -525,23 +928,41 @@ function initEvents() {
         break;
       case 'recording_stopped':
         setRecording(false);
-        $('#recordStatus').textContent = 'Transcribing...';
+        setText('#recordStatus', 'Transcribing...');
         break;
       case 'transcription':
         showTranscription(data && data.text, data && data.message);
-        $('#recordStatus').textContent = 'Idle';
+        setText('#recordStatus', 'Idle');
         refreshAsrStatus();
+        refreshHomeStats();
+        refreshHistory();
         break;
       case 'clarify_done':
         if (data && data.text) {
-          $('#clarifyOutput').textContent = data.text;
-          $('#clarifyMeta').textContent = `${data.model || ''}` +
-            (data.latency_ms ? ` / ${data.latency_ms} ms` : '');
+          setText('#clarifyOutput', data.text);
+          setText('#clarifyMeta', `${data.model || ''}` + (data.latency_ms ? ` / ${data.latency_ms} ms` : ''));
         }
         refreshClarifyStatus();
         break;
       case 'statistics_updated':
         if ($('#page-statistics').classList.contains('active')) refreshStatistics();
+        refreshHomeStats();
+        break;
+      case 'correction_learned':
+        setText('#recordStatus', data && data.ok ? 'Learned correction' : 'Learning skipped');
+        refreshTrain();
+        refreshHomeStats();
+        break;
+      case 'training_sample_saved':
+        if ($('#page-train').classList.contains('active')) refreshTrain();
+        refreshHomeStats();
+        break;
+      case 'adaptation_updated':
+        if ($('#page-train').classList.contains('active')) refreshTrain();
+        refreshHomeStats();
+        break;
+      case 'history_updated':
+        refreshHistory();
         break;
       default:
         break;
@@ -554,11 +975,17 @@ function setRecording(on) {
   const status = $('#recordStatus');
   const btn = $('#recordBtn');
   isRecording = on;
-  orb.classList.toggle('recording', on);
-  status.textContent = on ? 'Recording' : 'Idle';
-  btn.classList.toggle('recording', on);
-  btn.textContent = on ? 'Stop and transcribe' : 'Start recording';
-  btn.disabled = false;
+  if (orb) orb.classList.toggle('recording', on);
+  if (status) status.textContent = on ? 'Recording' : 'Idle';
+  if (btn) {
+    btn.classList.toggle('recording', on);
+    btn.textContent = on ? 'Stop and transcribe' : 'Start recording';
+    btn.disabled = false;
+  }
+  if (!on && activeTrainingKind) {
+    const status = activeTrainingKind === 'trigger' ? $('#trainTriggerStatus') : $('#trainWordStatus');
+    if (status) status.textContent = 'Recording stopped. Finish to save this sample.';
+  }
 
   if (on) {
     recStart = Date.now();
@@ -567,7 +994,7 @@ function setRecording(on) {
       const s = Math.floor((Date.now() - recStart) / 1000);
       const mm = String(Math.floor(s / 60)).padStart(2, '0');
       const ss = String(s % 60).padStart(2, '0');
-      $('#recordTimer').textContent = `${mm}:${ss}`;
+      setText('#recordTimer', `${mm}:${ss}`);
     }, 250);
   } else {
     clearInterval(recTimer);
@@ -579,14 +1006,15 @@ async function copyTranscript(text) {
   if (!text) return;
   try {
     await window.afk.call('set_clipboard', { text });
-    $('#recordStatus').textContent = 'Copied';
+    setText('#recordStatus', 'Copied');
   } catch (e) {
-    $('#recordStatus').textContent = 'Idle';
+    setText('#recordStatus', 'Idle');
   }
 }
 
 function showTranscription(text, message) {
   const el = $('#transcription');
+  if (!el) return;
   if (text && message) el.textContent = `${text}\n\n${message}`;
   else if (text) el.textContent = text;
   else if (message) el.textContent = message;
@@ -597,10 +1025,26 @@ window.addEventListener('DOMContentLoaded', async () => {
   initNav();
   initEvents();
   initEditableHotkeyHandling();
-  $('#recordBtn').addEventListener('click', toggleRecord);
-  $('#loadAsrBtn').addEventListener('click', loadAsrModel);
-  $('#micSelect').addEventListener('change', onMicChange);
-  $('#clarifyBtn').addEventListener('click', clarifyText);
+  initTrainControls();
+  enhanceSelects();
+  if ($('#recordBtn')) $('#recordBtn').addEventListener('click', toggleRecord);
+  if ($('#loadAsrBtn')) $('#loadAsrBtn').addEventListener('click', loadAsrModel);
+  if ($('#micSelect')) $('#micSelect').addEventListener('change', onMicChange);
+  if ($('#clarifyBtn')) $('#clarifyBtn').addEventListener('click', clarifyText);
+  if ($('#historyList')) {
+    $('#historyList').addEventListener('click', async (event) => {
+      const copy = event.target.closest('[data-copy-history]');
+      const del = event.target.closest('[data-delete-history]');
+      if (copy) await copyHistoryItem(copy.dataset.copyHistory);
+      if (del) await deleteHistoryItem(del.dataset.deleteHistory);
+    });
+  }
+  if ($('#clearHistoryBtn')) {
+    $('#clearHistoryBtn').addEventListener('click', async () => {
+      await window.afk.call('clear_transcription_history', {});
+      refreshHistory();
+    });
+  }
 
   await initAbout();
   await applySavedTheme();
@@ -609,6 +1053,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   await refreshMicrophones();
   await refreshAsrStatus();
   await refreshClarifyStatus();
+  await refreshHomeStats();
+  await refreshHistory();
+  await refreshTrain();
 
   setTimeout(() => {
     refreshBackendInfo();

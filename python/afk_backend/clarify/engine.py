@@ -178,6 +178,9 @@ class ClarifyEngine:
             return fallback
         return primary
 
+    def _fallback_for(self, model: ClarifyModel) -> ClarifyModel:
+        return self.short if model is self.long else self.long
+
     def clarify(self, text: str, threshold: Optional[int] = None) -> dict:
         text = (text or "").strip()
         if not text:
@@ -196,7 +199,17 @@ class ClarifyEngine:
             corrected = model.clarify(text)
         except Exception as exc:  # noqa: BLE001
             logutil.error(f"Clarify failed ({model.name}): {exc}")
-            return {"text": text, "model": "error", "latency_ms": 0, "words": words}
+            fallback = self._fallback_for(model)
+            if fallback.available:
+                logutil.warn(f"Retrying Clarify with fallback model '{fallback.name}'")
+                try:
+                    corrected = fallback.clarify(text)
+                    model = fallback
+                except Exception as fallback_exc:  # noqa: BLE001
+                    logutil.error(f"Clarify fallback failed ({fallback.name}): {fallback_exc}")
+                    return {"text": text, "model": "error", "latency_ms": 0, "words": words}
+            else:
+                return {"text": text, "model": "error", "latency_ms": 0, "words": words}
 
         return {
             "text": corrected or text,

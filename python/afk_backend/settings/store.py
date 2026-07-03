@@ -16,15 +16,17 @@ from typing import Any, Dict
 from .. import config, logutil
 
 WINDOWS_HOTKEYS = {
-    "push_to_talk": "Ctrl+Space",       # held to record
-    "toggle": "Ctrl+Shift+Space",       # toggle recording
-    "clarify": "Ctrl+Alt+K",            # clarify selection/clipboard
+    "push_to_talk": "Ctrl+Space",        # held to record
+    "toggle": "Ctrl+Shift+Space",        # toggle recording
+    "clarify": "Ctrl+Alt+K",             # clarify selection/clipboard
+    "learn_correction": "Ctrl+Alt+L",    # learn selection/clipboard as correction
 }
 
 MAC_HOTKEYS = {
-    "push_to_talk": "Option",           # held to record
-    "toggle": "Option+Space",           # toggle recording
-    "clarify": "Ctrl+Option+K",         # clarify selection/clipboard
+    "push_to_talk": "Option",            # held to record
+    "toggle": "Option+Space",            # toggle recording
+    "clarify": "Ctrl+Option+K",          # clarify selection/clipboard
+    "learn_correction": "Ctrl+Option+L", # learn selection/clipboard as correction
 }
 
 
@@ -39,6 +41,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "launch_minimized": True,
     "auto_paste": True,
     "auto_clarify": False,
+    "auto_capitalization": True,
+    "auto_punctuation": True,
+    "training_corrections": True,
     "word_count_threshold": config.DEFAULT_WORD_THRESHOLD,
     "logging": True,
     "developer_mode": False,
@@ -110,6 +115,12 @@ def _migrate_settings(data: Dict[str, Any]) -> Dict[str, Any]:
     hotkeys = data.get("hotkeys") or {}
     if hotkeys.get("clarify") == "Ctrl+Shift+C":
         hotkeys["clarify"] = DEFAULT_SETTINGS["hotkeys"]["clarify"]
+    if hotkeys.get("push_to_talk") in {None, "Ctrl+Shift+Space"}:
+        hotkeys["push_to_talk"] = DEFAULT_SETTINGS["hotkeys"]["push_to_talk"]
+    if hotkeys.get("toggle") in {None, "Ctrl+Alt+Space"}:
+        hotkeys["toggle"] = DEFAULT_SETTINGS["hotkeys"]["toggle"]
+    if not hotkeys.get("learn_correction"):
+        hotkeys["learn_correction"] = DEFAULT_SETTINGS["hotkeys"]["learn_correction"]
     if sys.platform == "darwin" and data.get("_mac_hotkeys_migrated") is not True:
         if hotkeys.get("push_to_talk") == WINDOWS_HOTKEYS["push_to_talk"]:
             hotkeys["push_to_talk"] = MAC_HOTKEYS["push_to_talk"]
@@ -117,8 +128,11 @@ def _migrate_settings(data: Dict[str, Any]) -> Dict[str, Any]:
             hotkeys["toggle"] = MAC_HOTKEYS["toggle"]
         if hotkeys.get("clarify") == WINDOWS_HOTKEYS["clarify"]:
             hotkeys["clarify"] = MAC_HOTKEYS["clarify"]
+        if hotkeys.get("learn_correction") == WINDOWS_HOTKEYS["learn_correction"]:
+            hotkeys["learn_correction"] = MAC_HOTKEYS["learn_correction"]
         data["_mac_hotkeys_migrated"] = True
-    if data.get("word_count_threshold") in {42, 60} and data.get("_word_count_threshold_migrated") is not True:
+    data["hotkeys"] = hotkeys
+    if data.get("word_count_threshold") in {4, 42, 60} and data.get("_word_count_threshold_migrated") is not True:
         data["word_count_threshold"] = DEFAULT_SETTINGS["word_count_threshold"]
         data["_word_count_threshold_migrated"] = True
     if data.get("auto_clarify") is True and data.get("_auto_clarify_migrated") is not True:

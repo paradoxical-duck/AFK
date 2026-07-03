@@ -11,9 +11,10 @@ from afk_backend.clarify.engine import ClarifyEngine, _clean_correction  # noqa:
 
 
 class FakeModel:
-    def __init__(self, name, available=True):
+    def __init__(self, name, available=True, fail=False):
         self.name = name
         self._available = available
+        self.fail = fail
         self.calls = []
 
     @property
@@ -26,6 +27,8 @@ class FakeModel:
 
     def clarify(self, text):
         self.calls.append(text)
+        if self.fail:
+            raise RuntimeError(f"{self.name} failed")
         return f"[{self.name}] {text}"
 
 
@@ -59,6 +62,14 @@ class TestRouting(unittest.TestCase):
         text = " ".join(["w"] * 100)
         res = self.engine.clarify(text, threshold=60)
         self.assertEqual(res["model"], "short")  # fell back
+
+    def test_fallback_when_preferred_model_fails(self):
+        self.long.fail = True
+        text = " ".join(["w"] * 100)
+        res = self.engine.clarify(text, threshold=60)
+        self.assertEqual(res["model"], "short")
+        self.assertEqual(len(self.long.calls), 1)
+        self.assertEqual(len(self.short.calls), 1)
 
     def test_fallback_when_short_missing(self):
         self.short._available = False
