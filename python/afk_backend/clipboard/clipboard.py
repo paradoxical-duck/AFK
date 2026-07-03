@@ -2,8 +2,8 @@
 
 Provides the primitives the dictation and Clarify flows need:
   * read/write the clipboard (unicode-safe)
-  * synthetic paste (Ctrl+V) into the focused application
-  * capture the current selection (Ctrl+C) for Clarify
+  * synthetic paste into the focused application
+  * capture the current selection for Clarify
   * replace the current selection with new text
 
 We deliberately preserve and restore the user's clipboard around
@@ -13,6 +13,7 @@ selection-capture so dictation never clobbers what they had copied.
 import threading
 import time
 import uuid
+import sys
 
 try:
     import pyperclip
@@ -89,12 +90,15 @@ class Clipboard:
             self._kb.release(letter)
             self._kb.release(modifier)
 
+    def _shortcut_modifier(self):
+        return Key.cmd if sys.platform == "darwin" else Key.ctrl
+
     def paste(self) -> None:
-        """Send Ctrl+V to the focused window."""
-        self._tap_combo(Key.ctrl, "v")
+        """Send paste shortcut to the focused window."""
+        self._tap_combo(self._shortcut_modifier(), "v")
 
     def _copy(self) -> None:
-        self._tap_combo(Key.ctrl, "c")
+        self._tap_combo(self._shortcut_modifier(), "c")
 
     def type_text(self, text: str) -> None:
         """Type `text` directly into the focused window without touching

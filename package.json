@@ -2,7 +2,7 @@
   "name": "afk",
   "productName": "AFK",
   "version": "0.1.0",
-  "description": "AFK - privacy-first, fully-local AI speech-to-text for Windows.",
+  "description": "AFK - privacy-first, fully-local AI speech-to-text for desktop.",
   "author": {
     "name": "pachisiav11"
   },
@@ -16,6 +16,7 @@
     "rebuild": "electron-builder install-app-deps",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac dmg --arm64",
     "test": "node --test tests/electron/*.test.js"
   },
   "devDependencies": {
@@ -33,6 +34,7 @@
       "output": "installer/dist",
       "buildResources": "assets"
     },
+    "afterPack": "scripts/after-pack-mac.js",
     "files": [
       "electron/**/*",
       "ui/**/*",
@@ -68,6 +70,24 @@
         }
       ],
       "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "sign": false
     },
     "nsis": {
       "oneClick": true,

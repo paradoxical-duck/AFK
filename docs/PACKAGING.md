@@ -1,9 +1,11 @@
 # Packaging AFK
 
-AFK ships as a one-click **NSIS** installer built with `electron-builder`.
+AFK ships with platform installers built by `electron-builder`: **NSIS** on
+Windows and a **DMG** on macOS.
 
 ```bash
 npm run dist     # -> installer/dist/AFK Setup <version>.exe
+npm run dist:mac # -> installer/dist/AFK-<version>-arm64.dmg
 npm run pack     # -> installer/dist/win-unpacked/ (unpacked, for debugging)
 ```
 
@@ -15,7 +17,7 @@ Config lives in the `build` field of [`package.json`](../package.json).
 |-----------|----------|---------------------|
 | Electron runtime + UI | ✅ | `resources/app.asar` |
 | Python backend **source** | ✅ | `resources/python/` |
-| llama.cpp `llama-server` (Windows CPU x64 build) | ✅ | `resources/vendor/llama.cpp/` |
+| llama.cpp `llama-server` (platform build) | ✅ | `resources/vendor/llama.cpp/` |
 | App icons | ✅ | bundled |
 | Python venv + backend deps (sounddevice, onnxruntime, etc.) | ✅ | `resources/python/.venv/` |
 | Optional NeMo/PyTorch stack | ❌ provisioned | install only when using `.nemo` |

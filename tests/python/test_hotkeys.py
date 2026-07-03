@@ -4,6 +4,7 @@ No real keyboard hook is installed; we call the listener handlers directly.
 """
 
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from pynput import keyboard  # noqa: E402
 
 CTRL = keyboard.Key.ctrl_l
 SHIFT = keyboard.Key.shift
+ALT = keyboard.Key.alt_l
 SPACE = keyboard.Key.space
 C = keyboard.KeyCode(vk=67)  # 'C'
 K = keyboard.KeyCode(vk=75)  # 'K'
@@ -26,6 +28,7 @@ class TestParse(unittest.TestCase):
         self.assertEqual(parse_combo("Ctrl+Space"), (frozenset({"ctrl"}), "space"))
         self.assertEqual(parse_combo("Ctrl+Alt+K"), (frozenset({"ctrl", "alt"}), "k"))
         self.assertEqual(parse_combo("Alt+Win+K"), (frozenset({"alt", "win"}), "k"))
+        self.assertEqual(parse_combo("Option"), (frozenset({"alt"}), None))
 
     def test_parse_aliases(self):
         self.assertEqual(parse_combo("control+space")[0], frozenset({"ctrl"}))
@@ -122,6 +125,37 @@ class TestManager(unittest.TestCase):
         self.assertIn("cancel", self.events)
         self.assertNotIn("clarify", self.events)
         self.assertNotIn("toggle", self.events)
+
+    def test_modifier_only_push_to_talk(self):
+        self.mgr._modifier_only_ptt_delay = 0.01
+        self.mgr.set_bindings(
+            {
+                "push_to_talk": "option",
+                "toggle": "option+space",
+                "clarify": "ctrl+alt+k",
+            }
+        )
+        self.mgr._on_press(ALT)
+        time.sleep(0.03)
+        self.assertEqual(self.events, ["ptt_start"])
+        self.mgr._on_release(ALT)
+        self.assertEqual(self.events, ["ptt_start", "ptt_stop"])
+
+    def test_option_space_toggle_does_not_start_ptt(self):
+        self.mgr._modifier_only_ptt_delay = 0.05
+        self.mgr.set_bindings(
+            {
+                "push_to_talk": "option",
+                "toggle": "option+space",
+                "clarify": "ctrl+alt+k",
+            }
+        )
+        self.mgr._on_press(ALT)
+        self.mgr._on_press(SPACE)
+        time.sleep(0.08)
+        self.assertEqual(self.events, ["toggle"])
+        self.mgr._on_release(SPACE)
+        self.mgr._on_release(ALT)
 
 
 if __name__ == "__main__":

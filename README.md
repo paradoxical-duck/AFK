@@ -1,6 +1,6 @@
 # AFK
 
-**Privacy-first, fully-local AI speech-to-text for Windows.**
+**Privacy-first, fully-local AI speech-to-text for desktop.**
 
 AFK turns your voice into polished text without ever sending audio to the cloud.
 Hold a hotkey, speak, release — your words are transcribed locally with
@@ -23,7 +23,7 @@ This repository is built **phase by phase**. Current state:
 | 3 | Clipboard insertion, push-to-talk, toggle recording | ✅ |
 | 4 | Clarify pipeline + automatic model routing | ✅ |
 | 5 | Statistics, settings, local storage | ✅ |
-| 6 | UI polish, performance, packaging, Windows installer | ✅ |
+| 6 | UI polish, performance, packaging, Windows and macOS installers | ✅ |
 
 ## Architecture
 
@@ -127,8 +127,9 @@ live in `models/` or your user-data directory.
 ## Building the installer
 
 ```bash
-python/.venv/Scripts/python scripts/make_icons.py   # generate app icons
-npm run dist                                         # one-click NSIS .exe in installer/dist/
+python scripts/make_icons.py                         # generate app icons
+npm run dist                                         # platform installer in installer/dist/
+npm run dist:mac                                     # Apple Silicon DMG on macOS
 ```
 
 The installer bundles the Electron app, the Python backend source, and the
@@ -141,9 +142,9 @@ how to produce a fully self-contained installer.
 
 | Action | Default | Behaviour |
 |--------|---------|-----------|
-| Push-to-talk | `Ctrl+Space` (hold) | Hold to record, release to transcribe + paste |
-| Toggle recording | `Ctrl+Shift+Space` | Press to start/stop; auto-clarifies before paste |
-| Clarify | `Ctrl+Alt+K` | Polish selected text (or clipboard) in place |
+| Push-to-talk | Windows/Linux: `Ctrl+Space` (hold), macOS: `Option` (hold) | Hold to record, release to transcribe + paste |
+| Toggle recording | Windows/Linux: `Ctrl+Shift+Space`, macOS: `Option+Space` | Press to start/stop; auto-clarifies before paste |
+| Clarify | Windows/Linux: `Ctrl+Alt+K`, macOS: `Ctrl+Option+K` | Polish selected text (or clipboard) in place |
 | Cancel | `Escape` | Abort an in-flight recording, transcription, or Clarify without inserting anything |
 
 > The spec's `Ctrl+Fn` combos aren't usable — the `Fn` key is handled in

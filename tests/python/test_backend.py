@@ -47,7 +47,8 @@ class TestDispatch(unittest.TestCase):
             "update_settings", {"patch": {"hotkeys": {"clarify": "Ctrl+Alt+C"}}}
         )
         self.assertEqual(updated2["hotkeys"]["clarify"], "Ctrl+Alt+C")
-        self.assertEqual(updated2["hotkeys"]["push_to_talk"], "Ctrl+Space")
+        expected_ptt = "Option" if sys.platform == "darwin" else "Ctrl+Space"
+        self.assertEqual(updated2["hotkeys"]["push_to_talk"], expected_ptt)
 
     def test_unknown_method(self):
         from afk_backend.rpc import RpcError

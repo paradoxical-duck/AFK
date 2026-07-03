@@ -49,7 +49,9 @@ function findBasePython() {
 function main() {
   if (!fs.existsSync(venvPython)) {
     const { cmd, pre } = findBasePython();
-    run(cmd, [...pre, '-m', 'venv', venvDir]);
+    const venvArgs = [...pre, '-m', 'venv'];
+    if (process.platform === 'darwin') venvArgs.push('--copies');
+    run(cmd, [...venvArgs, venvDir]);
   } else {
     console.log('Virtual environment already exists.');
   }

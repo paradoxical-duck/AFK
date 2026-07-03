@@ -7,12 +7,30 @@ the user file are preserved; missing keys are filled from defaults.
 
 import json
 import os
+import sys
 import tempfile
 import threading
 from copy import deepcopy
 from typing import Any, Dict
 
 from .. import config, logutil
+
+WINDOWS_HOTKEYS = {
+    "push_to_talk": "Ctrl+Space",       # held to record
+    "toggle": "Ctrl+Shift+Space",       # toggle recording
+    "clarify": "Ctrl+Alt+K",            # clarify selection/clipboard
+}
+
+MAC_HOTKEYS = {
+    "push_to_talk": "Option",           # held to record
+    "toggle": "Option+Space",           # toggle recording
+    "clarify": "Ctrl+Option+K",         # clarify selection/clipboard
+}
+
+
+def default_hotkeys() -> Dict[str, str]:
+    return deepcopy(MAC_HOTKEYS if sys.platform == "darwin" else WINDOWS_HOTKEYS)
+
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "microphone": None,            # device name; None = system default
@@ -24,11 +42,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "word_count_threshold": config.DEFAULT_WORD_THRESHOLD,
     "logging": True,
     "developer_mode": False,
-    "hotkeys": {
-        "push_to_talk": "Ctrl+Space",       # held to record
-        "toggle": "Ctrl+Shift+Space",        # toggle recording
-        "clarify": "Ctrl+Alt+K",             # clarify selection/clipboard
-    },
+    "hotkeys": default_hotkeys(),
     "noise_suppression": True,
     "auto_gain": True,
     "silence_trim": True,
@@ -96,6 +110,14 @@ def _migrate_settings(data: Dict[str, Any]) -> Dict[str, Any]:
     hotkeys = data.get("hotkeys") or {}
     if hotkeys.get("clarify") == "Ctrl+Shift+C":
         hotkeys["clarify"] = DEFAULT_SETTINGS["hotkeys"]["clarify"]
+    if sys.platform == "darwin" and data.get("_mac_hotkeys_migrated") is not True:
+        if hotkeys.get("push_to_talk") == WINDOWS_HOTKEYS["push_to_talk"]:
+            hotkeys["push_to_talk"] = MAC_HOTKEYS["push_to_talk"]
+        if hotkeys.get("toggle") == WINDOWS_HOTKEYS["toggle"]:
+            hotkeys["toggle"] = MAC_HOTKEYS["toggle"]
+        if hotkeys.get("clarify") == WINDOWS_HOTKEYS["clarify"]:
+            hotkeys["clarify"] = MAC_HOTKEYS["clarify"]
+        data["_mac_hotkeys_migrated"] = True
     if data.get("word_count_threshold") in {42, 60} and data.get("_word_count_threshold_migrated") is not True:
         data["word_count_threshold"] = DEFAULT_SETTINGS["word_count_threshold"]
         data["_word_count_threshold_migrated"] = True

@@ -7,6 +7,13 @@ let isRecording = false;
 let recTimer = null;
 let recStart = 0;
 let _settingsCache = null;
+let _platform = '';
+
+function defaultHotkeys() {
+  return _platform === 'darwin'
+    ? { push_to_talk: 'Option', toggle: 'Option+Space', clarify: 'Ctrl+Option+K' }
+    : { push_to_talk: 'Ctrl+Space', toggle: 'Ctrl+Shift+Space', clarify: 'Ctrl+Alt+K' };
+}
 
 function escapeHtml(value) {
   return String(value == null ? '' : value)
@@ -44,6 +51,7 @@ async function initAbout() {
     $('#aboutVersion').textContent = info.version;
     $('#aboutElectron').textContent = info.electron;
     $('#aboutNode').textContent = info.node;
+    _platform = info.platform || '';
   } catch (e) {
     // Backend shell can still be starting.
   }
@@ -210,13 +218,15 @@ async function refreshHotkeys() {
     const cfg = await window.afk.call('get_settings', {});
     _settingsCache = cfg;
     const hk = cfg.hotkeys || {};
-    $('#pttHotkey').textContent = hk.push_to_talk || 'Ctrl+Space';
-    $('#toggleHotkey').textContent = hk.toggle || 'Ctrl+Shift+Space';
-    $('#clarifyHotkey').textContent = hk.clarify || 'Ctrl+Alt+K';
+    const defaults = defaultHotkeys();
+    $('#pttHotkey').textContent = hk.push_to_talk || defaults.push_to_talk;
+    $('#toggleHotkey').textContent = hk.toggle || defaults.toggle;
+    $('#clarifyHotkey').textContent = hk.clarify || defaults.clarify;
   } catch (e) {
-    $('#pttHotkey').textContent = 'Ctrl+Space';
-    $('#toggleHotkey').textContent = 'Ctrl+Shift+Space';
-    $('#clarifyHotkey').textContent = 'Ctrl+Alt+K';
+    const defaults = defaultHotkeys();
+    $('#pttHotkey').textContent = defaults.push_to_talk;
+    $('#toggleHotkey').textContent = defaults.toggle;
+    $('#clarifyHotkey').textContent = defaults.clarify;
   }
 }
 
@@ -230,13 +240,18 @@ function isEditableTarget(target) {
 function comboFromEvent(event) {
   const key = event.key;
   const lower = String(key || '').toLowerCase();
-  if (['control', 'shift', 'alt', 'meta'].includes(lower)) return '';
+  if (['control', 'shift', 'alt', 'meta'].includes(lower)) {
+    if (lower === 'alt' && event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
+      return 'Option';
+    }
+    return '';
+  }
 
   const parts = [];
   if (event.ctrlKey) parts.push('Ctrl');
   if (event.shiftKey) parts.push('Shift');
-  if (event.altKey) parts.push('Alt');
-  if (event.metaKey) parts.push('Win');
+  if (event.altKey) parts.push(_platform === 'darwin' ? 'Option' : 'Alt');
+  if (event.metaKey) parts.push(_platform === 'darwin' ? 'Cmd' : 'Win');
 
   let main = '';
   if (event.code === 'Space' || lower === ' ') main = 'Space';
@@ -281,7 +296,12 @@ function eventMatchesCombo(event, combo) {
 
 function configuredHotkeys() {
   const hk = (_settingsCache && _settingsCache.hotkeys) || {};
-  return [hk.push_to_talk || 'Ctrl+Space', hk.toggle || 'Ctrl+Shift+Space', hk.clarify || 'Ctrl+Alt+K'];
+  const defaults = defaultHotkeys();
+  return [
+    hk.push_to_talk || defaults.push_to_talk,
+    hk.toggle || defaults.toggle,
+    hk.clarify || defaults.clarify
+  ];
 }
 
 function initEditableHotkeyHandling() {
@@ -407,7 +427,7 @@ async function refreshSettings() {
     list.innerHTML =
       settingRow('Microphone', 'Input device for dictation', `<select id="set-microphone">${micOpts}</select>`) +
       settingRow('Theme', 'Application appearance', `<select id="set-theme"><option value="dark" ${cfg.theme !== 'light' ? 'selected' : ''}>Dark</option><option value="light" ${cfg.theme === 'light' ? 'selected' : ''}>Light</option></select>`) +
-      settingRow('Start on login', 'Launch AFK when Windows starts', toggleHtml('set-startup_on_login', cfg.startup_on_login)) +
+      settingRow('Start on login', 'Launch AFK when you sign in', toggleHtml('set-startup_on_login', cfg.startup_on_login)) +
       settingRow('Launch minimized', 'Open directly into the system tray', toggleHtml('set-launch_minimized', cfg.launch_minimized)) +
       settingRow('Auto-paste', 'Paste dictation into the active app', toggleHtml('set-auto_paste', cfg.auto_paste)) +
       settingRow('Auto-clarify', 'Run grammar cleanup before paste', toggleHtml('set-auto_clarify', cfg.auto_clarify)) +

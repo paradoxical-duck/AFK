@@ -9,12 +9,15 @@ Matching uses *exact* modifier sets so overlapping combos disambiguate:
   Ctrl+Space          -> push-to-talk   (Ctrl only)
   Ctrl+Shift+Space    -> toggle         (Ctrl+Shift)
   Ctrl+Alt+K          -> clarify        (Ctrl+Alt)
+  Option              -> push-to-talk   (macOS, modifier-only)
+  Option+Space        -> toggle         (macOS)
 
 Heavy work (recording/transcription/paste) must be dispatched off the listener
 thread by the callbacks; this class only detects and routes events.
 """
 
 import threading
+import sys
 from typing import Callable, Dict, FrozenSet, Optional, Tuple
 
 try:
@@ -34,7 +37,11 @@ _MOD_ALIASES = {
     "win": "win", "cmd": "win", "super": "win", "meta": "win", "windows": "win",
 }
 
-Combo = Tuple[FrozenSet[str], str]
+Combo = Tuple[FrozenSet[str], Optional[str]]
+
+
+def _is_macos() -> bool:
+    return sys.platform == "darwin"
 
 
 def parse_combo(combo: str) -> Optional[Combo]:
@@ -53,7 +60,9 @@ def parse_combo(combo: str) -> Optional[Combo]:
             main = "space"
         else:
             main = p
-    if main is None:
+    # Modifier-only bindings are useful for macOS Option push-to-talk, but
+    # avoid accepting ambiguous multi-modifier strings like "Ctrl+Shift".
+    if main is None and len(mods) != 1:
         return None
     return frozenset(mods), main
 
@@ -99,16 +108,18 @@ class HotkeyManager:
         self._pressed_mods = set()
         self._main_down: Optional[str] = None
         self._ptt_on = False
+        self._ptt_pending_timer: Optional[threading.Timer] = None
         self._fired_edge = False  # debounce edge-triggered actions per press
         self._esc_fired = False  # debounce Escape (cancel) per press
         self._injecting = False
+        self._modifier_only_ptt_delay = 0.12
 
     # ---- configuration ----
     def set_bindings(self, hotkeys: Dict[str, str]) -> None:
         binds: Dict[str, Combo] = {}
         for action, default in (
-            ("push_to_talk", "ctrl+space"),
-            ("toggle", "ctrl+shift+space"),
+            ("push_to_talk", "option" if _is_macos() else "ctrl+space"),
+            ("toggle", "option+space" if _is_macos() else "ctrl+shift+space"),
             ("clarify", "ctrl+alt+k"),
         ):
             parsed = parse_combo(hotkeys.get(action, default))
@@ -144,6 +155,7 @@ class HotkeyManager:
             except Exception:
                 pass
             self._listener = None
+        self._cancel_pending_ptt()
 
     # ---- event handling ----
     def _on_press(self, key):
@@ -189,11 +201,43 @@ class HotkeyManager:
         mods, main = combo
         active = (self._main_down == main) and (self._pressed_mods == mods)
         if active and not self._ptt_on:
-            self._ptt_on = True
-            self._fire("ptt_start")
+            if main is None:
+                self._schedule_modifier_only_ptt()
+            else:
+                self._ptt_on = True
+                self._fire("ptt_start")
         elif not active and self._ptt_on:
+            self._cancel_pending_ptt()
             self._ptt_on = False
             self._fire("ptt_stop")
+        elif not active:
+            self._cancel_pending_ptt()
+
+    def _schedule_modifier_only_ptt(self):
+        if self._ptt_pending_timer is not None:
+            return
+        timer = threading.Timer(self._modifier_only_ptt_delay, self._fire_pending_ptt)
+        timer.daemon = True
+        self._ptt_pending_timer = timer
+        timer.start()
+
+    def _cancel_pending_ptt(self):
+        timer = self._ptt_pending_timer
+        if timer is not None:
+            timer.cancel()
+            self._ptt_pending_timer = None
+
+    def _fire_pending_ptt(self):
+        combo = self._bindings.get("push_to_talk")
+        if not combo:
+            return
+        mods, main = combo
+        active = main is None and self._main_down is None and self._pressed_mods == mods
+        if not active or self._ptt_on:
+            return
+        self._ptt_pending_timer = None
+        self._ptt_on = True
+        self._fire("ptt_start")
 
     def _evaluate_edge(self):
         if self._fired_edge or self._main_down is None:

@@ -1,11 +1,13 @@
 """Generate AFK app icons from the project logo source.
 
-Produces assets/icon.png, assets/tray.png, and assets/icon.ico used by
+Produces assets/icon.png, assets/tray.png, assets/icon.ico, and assets/icon.icns used by
 Electron and electron-builder.
 
-Run: python/.venv/Scripts/python scripts/make_icons.py
+Run: python scripts/make_icons.py
 """
 
+import shutil
+import subprocess
 from pathlib import Path
 
 from PIL import Image
@@ -37,7 +39,20 @@ def main() -> None:
         ASSETS / "icon.ico",
         sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
     )
-    print("Wrote icon.png, tray.png, icon.ico to", ASSETS)
+
+    iconutil = shutil.which("iconutil")
+    if iconutil:
+        iconset = ASSETS / "icon.iconset"
+        iconset.mkdir(exist_ok=True)
+        for size in (16, 32, 128, 256, 512):
+            _fit_square(source, size).save(iconset / f"icon_{size}x{size}.png")
+            _fit_square(source, size * 2).save(iconset / f"icon_{size}x{size}@2x.png")
+        subprocess.run([iconutil, "-c", "icns", str(iconset), "-o", str(ASSETS / "icon.icns")], check=True)
+        for child in iconset.iterdir():
+            child.unlink()
+        iconset.rmdir()
+
+    print("Wrote icon.png, tray.png, icon.ico, icon.icns to", ASSETS)
 
 
 if __name__ == "__main__":

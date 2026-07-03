@@ -194,7 +194,7 @@ class AFKApp:
             result = _empty_transcription(
                 captured["duration"],
                 "low_signal",
-                "Microphone signal is too quiet. Check Windows input volume or choose another mic.",
+                "Microphone signal is too quiet. Check system input volume or choose another mic.",
                 raw_levels=raw_levels,
             )
             emit_event("transcription", result)
@@ -223,7 +223,7 @@ class AFKApp:
                 {
                     "text": "",
                     "reason": "low_signal",
-                    "message": "Microphone signal is too quiet. Check Windows input volume or choose another mic.",
+                    "message": "Microphone signal is too quiet. Check system input volume or choose another mic.",
                 }
             )
         # Record usage stats (words dictated, recording length, transcription latency).
@@ -429,7 +429,7 @@ class AFKApp:
     def _clarify_flow(self) -> None:
         """Hotkey Clarify: take the selection (or clipboard), polish, put it back.
 
-        1. Capture selected text (Ctrl+C). If empty, fall back to clipboard.
+        1. Capture selected text with the platform copy shortcut. If empty, fall back to clipboard.
         2. Route by word count and clarify.
         3. Replace the selection by pasting (or update the clipboard if we used
            the clipboard fallback).
@@ -442,7 +442,7 @@ class AFKApp:
         self._abort_event.clear()
         emit_event("clarify_started", {"source": "hotkey"})
 
-        # Capture selection with the listener suppressed (we synthesize Ctrl+C).
+        # Capture selection with the listener suppressed while we synthesize copy.
         try:
             self.hotkeys.set_injecting(True)
             selection = self.clipboard.capture_selection()
