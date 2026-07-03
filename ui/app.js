@@ -399,12 +399,33 @@ async function refreshHotkeys() {
     $('#toggleHotkey').textContent = hk.toggle || defaults.toggle;
     $('#clarifyHotkey').textContent = hk.clarify || defaults.clarify;
     $('#learnHotkey').textContent = hk.learn_correction || defaults.learn_correction;
+    refreshHotkeyStatus();
   } catch (e) {
     const defaults = defaultHotkeys();
     $('#pttHotkey').textContent = defaults.push_to_talk;
     $('#toggleHotkey').textContent = defaults.toggle;
     $('#clarifyHotkey').textContent = defaults.clarify;
     $('#learnHotkey').textContent = defaults.learn_correction;
+    setText('#hotkeyStatus', 'Unavailable');
+  }
+}
+
+async function refreshHotkeyStatus() {
+  try {
+    const status = await window.afk.call('hotkeys_status', {});
+    if (!status.available) {
+      setText('#hotkeyStatus', 'Unavailable');
+    } else if (_platform === 'darwin' && status.mac_input_monitoring_trusted === false) {
+      setText('#hotkeyStatus', 'Input Monitoring needed');
+    } else if (_platform === 'darwin' && status.mac_accessibility_trusted === false) {
+      setText('#hotkeyStatus', 'Accessibility needed');
+    } else if (status.error) {
+      setText('#hotkeyStatus', status.error);
+    } else {
+      setText('#hotkeyStatus', status.listening ? 'Ready' : 'Starting');
+    }
+  } catch (e) {
+    setText('#hotkeyStatus', 'Unavailable');
   }
 }
 

@@ -19,6 +19,7 @@ thread by the callbacks; this class only detects and routes events.
 
 import threading
 import sys
+import ctypes
 from typing import Callable, Dict, FrozenSet, Optional, Tuple
 
 try:
@@ -124,9 +125,10 @@ def _norm(key) -> Tuple[str, str]:
 
 
 class HotkeyManager:
-    def __init__(self, callbacks: Dict[str, Callable[[], None]]):
+    def __init__(self, callbacks: Dict[str, Callable[[], None]], event_observer: Optional[Callable[[Dict[str, object]], None]] = None):
         """callbacks: keys 'ptt_start','ptt_stop','toggle','clarify','learn_correction','cancel'."""
         self._cb = callbacks
+        self._event_observer = event_observer
         self._listener = None
         self._lock = threading.Lock()
 
@@ -140,6 +142,8 @@ class HotkeyManager:
         self._injecting = False
         self._modifier_only_ptt_delay = 0.12
         self._last_error = ""
+        self._event_count = 0
+        self._last_observed_event: Dict[str, object] = {}
 
     # ---- configuration ----
     def set_bindings(self, hotkeys: Dict[str, str]) -> None:
@@ -170,7 +174,10 @@ class HotkeyManager:
             "available": self.available(),
             "listening": self._listener is not None,
             "mac_accessibility_trusted": mac_accessibility_trusted(prompt=False) if _is_macos() else True,
+            "mac_input_monitoring_trusted": mac_input_monitoring_trusted(prompt=False) if _is_macos() else True,
             "error": self._last_error,
+            "event_count": self._event_count,
+            "last_event": dict(self._last_observed_event),
         }
 
     def start(self) -> None:
@@ -183,11 +190,16 @@ class HotkeyManager:
         if _is_macos() and mac_accessibility_trusted(prompt=False) is False:
             logutil.warn("macOS Accessibility access is required for global hotkeys; requesting permission")
             mac_accessibility_trusted(prompt=True)
+        if _is_macos() and mac_input_monitoring_trusted(prompt=False) is False:
+            self._last_error = "macOS Input Monitoring access is required for global hotkeys"
+            logutil.warn("macOS Input Monitoring access is required for global hotkeys; requesting permission")
+            mac_input_monitoring_trusted(prompt=True)
         try:
             self._listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
             self._listener.daemon = True
             self._listener.start()
-            self._last_error = ""
+            if not (_is_macos() and mac_input_monitoring_trusted(prompt=False) is False):
+                self._last_error = ""
             logutil.info("Global hotkey listener started")
         except Exception as exc:  # noqa: BLE001
             self._listener = None
@@ -208,6 +220,7 @@ class HotkeyManager:
         if self._injecting:
             return
         kind, token = _norm(key)
+        self._observe_key_event("press", kind, token)
         if kind == "mod":
             self._pressed_mods.add(token)
             self._evaluate_ptt()
@@ -228,6 +241,7 @@ class HotkeyManager:
         if self._injecting:
             return
         kind, token = _norm(key)
+        self._observe_key_event("release", kind, token)
         if kind == "mod":
             self._pressed_mods.discard(token)
             self._evaluate_ptt()
@@ -299,6 +313,7 @@ class HotkeyManager:
                 return
 
     def _fire(self, action: str):
+        self._observe({"type": "action", "action": action})
         cb = self._cb.get(action)
         if cb is None:
             return
@@ -306,6 +321,26 @@ class HotkeyManager:
             cb()
         except Exception as exc:  # noqa: BLE001
             logutil.error(f"Hotkey callback '{action}' failed: {exc}")
+
+    def _observe_key_event(self, event_type: str, kind: str, token: str) -> None:
+        visible_tokens = {"ctrl", "shift", "alt", "win", "space", "esc"}
+        if token not in visible_tokens:
+            return
+        self._observe({
+            "type": event_type,
+            "kind": kind,
+            "token": token,
+        })
+
+    def _observe(self, event: Dict[str, object]) -> None:
+        self._event_count += 1
+        self._last_observed_event = dict(event)
+        if self._event_observer is None:
+            return
+        try:
+            self._event_observer(dict(event))
+        except Exception:
+            pass
 
 
 def mac_accessibility_trusted(prompt: bool = False) -> Optional[bool]:
@@ -333,4 +368,18 @@ def mac_accessibility_trusted(prompt: bool = False) -> Optional[bool]:
         return bool(AXIsProcessTrusted())
     except Exception as exc:  # noqa: BLE001
         logutil.warn(f"macOS Accessibility trust check failed: {exc}")
+        return None
+
+
+def mac_input_monitoring_trusted(prompt: bool = False) -> Optional[bool]:
+    if not _is_macos():
+        return True
+    try:
+        lib = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        fn = lib.CGRequestListenEventAccess if prompt else lib.CGPreflightListenEventAccess
+        fn.argtypes = []
+        fn.restype = ctypes.c_bool
+        return bool(fn())
+    except Exception as exc:  # noqa: BLE001
+        logutil.warn(f"macOS Input Monitoring trust check failed: {exc}")
         return None

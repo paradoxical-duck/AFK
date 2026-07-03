@@ -11,6 +11,8 @@ import platform
 import re
 import sys
 import threading
+import json
+import time
 from typing import Any, Callable, Dict
 
 from . import config, logutil, __version__
@@ -46,7 +48,8 @@ class AFKApp:
                 "clarify": self._hk_clarify,
                 "learn_correction": self._hk_learn_correction,
                 "cancel": self._hk_cancel,
-            }
+            },
+            event_observer=self._hotkey_event_observed,
         )
         # Set whenever Escape is pressed; cleared at the start of each new
         # dictation/Clarify run. Checked at safe points so an in-flight command
@@ -87,6 +90,7 @@ class AFKApp:
         try:
             self.hotkeys.set_bindings(self.settings.get("hotkeys", {}))
             self.hotkeys.start()
+            self._write_hotkey_status({"type": "startup"})
         except Exception as exc:  # noqa: BLE001
             logutil.error(f"Failed to start hotkeys: {exc}")
 
@@ -334,6 +338,21 @@ class AFKApp:
         status = self.hotkeys.status()
         status["hotkeys"] = self.settings.get("hotkeys", {})
         return status
+
+    def _hotkey_event_observed(self, event: Dict[str, object]) -> None:
+        self._write_hotkey_status(event)
+
+    def _write_hotkey_status(self, event: Dict[str, object]) -> None:
+        try:
+            status = self.hotkeys.status()
+            status["hotkeys"] = self.settings.get("hotkeys", {})
+            status["last_update"] = time.time()
+            status["last_observed"] = event
+            path = config.data_dir() / "hotkeys-status.json"
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(status, fh, indent=2)
+        except Exception as exc:  # noqa: BLE001
+            logutil.warn(f"hotkey status write failed: {exc}")
 
     # ---- shared dictation flow ----
     def _paste(self, text: str) -> str:
