@@ -14,7 +14,7 @@
  * stderr from Python is treated as structured log output and forwarded.
  */
 
-const { spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs');
@@ -47,6 +47,7 @@ class PythonBridge extends EventEmitter {
 
     const { command, args } = resolvePython();
     const entry = backendEntry();
+    this._stopStaleBackends(entry);
     const fullArgs = [...args, entry];
 
     this.emit('log', { level: 'info', msg: `Starting backend: ${command} ${fullArgs.join(' ')}` });
@@ -175,6 +176,25 @@ class PythonBridge extends EventEmitter {
     setTimeout(() => {
       if (proc && !proc.killed) proc.kill();
     }, 1500);
+  }
+
+  _stopStaleBackends(entry) {
+    if (process.platform === 'win32') return;
+    try {
+      const output = execFileSync('pgrep', ['-f', entry], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      for (const rawPid of output.split(/\s+/).filter(Boolean)) {
+        const pid = Number(rawPid);
+        if (!pid || pid === process.pid) continue;
+        try {
+          process.kill(pid, 'SIGTERM');
+          this.emit('log', { level: 'warn', msg: `Stopped stale backend process ${pid}` });
+        } catch (_) {
+          // Process may already be gone.
+        }
+      }
+    } catch (_) {
+      // No stale backend was found.
+    }
   }
 }
 

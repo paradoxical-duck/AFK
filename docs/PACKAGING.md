@@ -11,6 +11,18 @@ npm run pack     # -> installer/dist/win-unpacked/ (unpacked, for debugging)
 
 Config lives in the `build` field of [`package.json`](../package.json).
 
+## macOS local signing
+
+macOS Accessibility grants are tied to the app's code-signing requirement. The
+mac pack step therefore signs with `AFK Stable Local Code Signing` when that
+identity exists, using `~/Library/Application Support/AFK/signing/afk-local-signing.keychain-db`
+by default. Set `AFK_MAC_CODESIGN_IDENTITY` and `AFK_MAC_CODESIGN_KEYCHAIN` to
+override those values.
+
+If no stable identity is available, packaging falls back to ad-hoc signing and
+macOS may require Accessibility permission to be removed and re-added after a
+rebuild.
+
 ## What the installer contains
 
 | Component | Bundled? | Location in install |

@@ -51,6 +51,7 @@ let macHotkeyPermissionTimer = null;
 let macGlobalShortcutAccelerators = [];
 
 const DEV = !!process.env.AFK_DEV;
+const PROMPT_ACCESSIBILITY = process.argv.includes('--prompt-accessibility');
 const APP_USER_MODEL_ID = 'com.afk.app';
 const APP_ICON_PATH = path.join(__dirname, '..', 'assets', 'icon.ico');
 const TRAY_ICON_PATH = path.join(__dirname, '..', 'assets', 'tray.png');
@@ -559,6 +560,10 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   logger.init(paths.logsDir());
   logger.info('AFK starting up');
+  if (PROMPT_ACCESSIBILITY && process.platform === 'darwin') {
+    const trusted = macAccessibilityTrusted(true);
+    logger.info(`mac accessibility one-shot setup prompt requested; trusted=${trusted}`);
+  }
 
   registerIpc();
   createTray();

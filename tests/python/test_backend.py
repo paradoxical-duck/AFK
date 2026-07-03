@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 REPO = Path(__file__).resolve().parents[2]
 PY_DIR = REPO / "python"
 sys.path.insert(0, str(PY_DIR))
@@ -78,6 +80,25 @@ class TestDispatch(unittest.TestCase):
         from afk_backend.rpc import RpcError
         with self.assertRaises(RpcError):
             self.app.dispatch("does_not_exist", {})
+
+    def test_short_recording_skips_transcription(self):
+        class FakeRecorder:
+            def stop(self):
+                return {
+                    "audio": np.ones(800, dtype=np.float32),
+                    "duration": 0.05,
+                    "sr": 16000,
+                }
+
+        class BombTranscriber:
+            def transcribe(self, *_args, **_kwargs):
+                raise AssertionError("short recording should not transcribe")
+
+        self.app.recorder = FakeRecorder()
+        self.app.transcriber = BombTranscriber()
+        result = self.app.stop_recording({})
+        self.assertEqual(result["text"], "")
+        self.assertEqual(result["reason"], "too_short")
 
 
 class TestSubprocessRpc(unittest.TestCase):

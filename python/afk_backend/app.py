@@ -27,6 +27,8 @@ from .statistics import StatsStore
 from .adaptation import AdaptationStore
 from .history import HistoryStore
 
+MIN_DICTATION_SECONDS = 0.35
+
 
 class AFKApp:
     def __init__(self) -> None:
@@ -81,9 +83,9 @@ class AFKApp:
     def on_started(self) -> None:
         """Called once the RPC loop is live; announce readiness to Electron."""
         emit_event("ready", self.get_info({}))
-        # Warm up models in the background so the first use is fast.
-        # AFK_NO_PRELOAD lets tests skip spawning model processes.
-        if not os.environ.get("AFK_NO_PRELOAD"):
+        # Model loading is intentionally lazy by default. On macOS, background
+        # ASR preload can consume enough memory to make the desktop stutter.
+        if os.environ.get("AFK_PRELOAD_ASR") == "1" and not os.environ.get("AFK_NO_PRELOAD"):
             self.transcriber.preload_async()
             # Clarify models are loaded lazily. Preloading the long Gemma
             # server at app startup can consume several GB and make macOS lag.
@@ -201,6 +203,15 @@ class AFKApp:
         audio = captured["audio"]
         if audio is None or len(audio) == 0:
             result = _empty_transcription(captured["duration"], "empty_audio")
+            emit_event("transcription", result)
+            return result
+
+        if captured["duration"] < MIN_DICTATION_SECONDS:
+            result = _empty_transcription(
+                captured["duration"],
+                "too_short",
+                "Recording was too short.",
+            )
             emit_event("transcription", result)
             return result
 
