@@ -35,7 +35,23 @@ _MOD_ALIASES = {
     "control": "ctrl", "ctrl": "ctrl", "ctl": "ctrl",
     "shift": "shift",
     "alt": "alt", "option": "alt", "altgr": "alt",
-    "win": "win", "cmd": "win", "super": "win", "meta": "win", "windows": "win",
+    "win": "win", "cmd": "win", "command": "win", "super": "win", "meta": "win", "windows": "win",
+}
+
+_MAC_MOD_VKS = {
+    54: "win", 55: "win",
+    56: "shift", 60: "shift",
+    58: "alt", 61: "alt",
+    59: "ctrl", 62: "ctrl",
+}
+
+_MAC_KEY_VKS = {
+    0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x",
+    8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r",
+    16: "y", 17: "t", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
+    23: "5", 25: "9", 26: "7", 28: "8", 29: "0", 31: "o", 32: "u",
+    34: "i", 35: "p", 37: "l", 38: "j", 40: "k", 45: "n", 46: "m",
+    49: "space", 53: "esc",
 }
 
 Combo = Tuple[FrozenSet[str], Optional[str]]
@@ -80,11 +96,20 @@ def _norm(key) -> Tuple[str, str]:
     }
     if key in mod_map:
         return "mod", mod_map[key]
+    name = str(getattr(key, "name", "") or "").lower()
+    if name.endswith(("_l", "_r")):
+        name = name[:-2]
+    if name in _MOD_ALIASES:
+        return "mod", _MOD_ALIASES[name]
     if key == K.space:
         return "main", "space"
     if isinstance(key, K):
         return "main", key.name  # enter, tab, f1, esc, ...
     vk = getattr(key, "vk", None)
+    if _is_macos() and vk in _MAC_MOD_VKS:
+        return "mod", _MAC_MOD_VKS[vk]
+    if _is_macos() and vk in _MAC_KEY_VKS:
+        return "main", _MAC_KEY_VKS[vk]
     if vk is not None:
         if 65 <= vk <= 90:
             return "main", chr(vk).lower()
@@ -114,6 +139,7 @@ class HotkeyManager:
         self._esc_fired = False  # debounce Escape (cancel) per press
         self._injecting = False
         self._modifier_only_ptt_delay = 0.12
+        self._last_error = ""
 
     # ---- configuration ----
     def set_bindings(self, hotkeys: Dict[str, str]) -> None:
@@ -139,16 +165,34 @@ class HotkeyManager:
     def available(self) -> bool:
         return keyboard is not None
 
+    def status(self) -> Dict[str, object]:
+        return {
+            "available": self.available(),
+            "listening": self._listener is not None,
+            "mac_accessibility_trusted": mac_accessibility_trusted(prompt=False) if _is_macos() else True,
+            "error": self._last_error,
+        }
+
     def start(self) -> None:
         if keyboard is None:
+            self._last_error = str(_PYNPUT_ERR)
             logutil.warn(f"Hotkeys unavailable: {_PYNPUT_ERR}")
             return
         if self._listener is not None:
             return
-        self._listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
-        self._listener.daemon = True
-        self._listener.start()
-        logutil.info("Global hotkey listener started")
+        if _is_macos() and mac_accessibility_trusted(prompt=False) is False:
+            logutil.warn("macOS Accessibility access is required for global hotkeys; requesting permission")
+            mac_accessibility_trusted(prompt=True)
+        try:
+            self._listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+            self._listener.daemon = True
+            self._listener.start()
+            self._last_error = ""
+            logutil.info("Global hotkey listener started")
+        except Exception as exc:  # noqa: BLE001
+            self._listener = None
+            self._last_error = str(exc)
+            logutil.error(f"Failed to start global hotkey listener: {exc}")
 
     def stop(self) -> None:
         if self._listener is not None:
@@ -262,3 +306,31 @@ class HotkeyManager:
             cb()
         except Exception as exc:  # noqa: BLE001
             logutil.error(f"Hotkey callback '{action}' failed: {exc}")
+
+
+def mac_accessibility_trusted(prompt: bool = False) -> Optional[bool]:
+    if not _is_macos():
+        return True
+    try:
+        try:
+            from ApplicationServices import (
+                AXIsProcessTrusted,
+                AXIsProcessTrustedWithOptions,
+                kAXTrustedCheckOptionPrompt,
+            )
+        except Exception:
+            from HIServices import (
+                AXIsProcessTrusted,
+                AXIsProcessTrustedWithOptions,
+                kAXTrustedCheckOptionPrompt,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logutil.warn(f"Unable to check macOS Accessibility trust: {exc}")
+        return None
+    try:
+        if prompt:
+            return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
+        return bool(AXIsProcessTrusted())
+    except Exception as exc:  # noqa: BLE001
+        logutil.warn(f"macOS Accessibility trust check failed: {exc}")
+        return None

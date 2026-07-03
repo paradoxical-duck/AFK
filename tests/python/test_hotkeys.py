@@ -12,6 +12,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "python"))
 
 from afk_backend.hotkeys import parse_combo  # noqa: E402
+from afk_backend.hotkeys import manager as hotkey_manager  # noqa: E402
 from afk_backend.hotkeys.manager import HotkeyManager  # noqa: E402
 from pynput import keyboard  # noqa: E402
 
@@ -34,6 +35,7 @@ class TestParse(unittest.TestCase):
     def test_parse_aliases(self):
         self.assertEqual(parse_combo("control+space")[0], frozenset({"ctrl"}))
         self.assertEqual(parse_combo("cmd+k")[0], frozenset({"win"}))
+        self.assertEqual(parse_combo("command+option+k")[0], frozenset({"win", "alt"}))
 
     def test_parse_invalid(self):
         self.assertIsNone(parse_combo(""))
@@ -165,6 +167,32 @@ class TestManager(unittest.TestCase):
         self.assertEqual(self.events, ["toggle"])
         self.mgr._on_release(SPACE)
         self.mgr._on_release(ALT)
+
+    def test_macos_virtual_key_modifiers(self):
+        original = hotkey_manager.sys.platform
+        hotkey_manager.sys.platform = "darwin"
+        try:
+            self.mgr._modifier_only_ptt_delay = 0.01
+            self.mgr.set_bindings(
+                {
+                    "push_to_talk": "option",
+                    "toggle": "option+space",
+                    "clarify": "cmd+option+k",
+                }
+            )
+            self.mgr._on_press(keyboard.KeyCode(vk=58))  # left Option
+            time.sleep(0.03)
+            self.assertEqual(self.events, ["ptt_start"])
+            self.mgr._on_release(keyboard.KeyCode(vk=58))
+            self.assertEqual(self.events, ["ptt_start", "ptt_stop"])
+
+            self.events.clear()
+            self.mgr._on_press(keyboard.KeyCode(vk=55))  # Command
+            self.mgr._on_press(keyboard.KeyCode(vk=58))  # Option
+            self.mgr._on_press(keyboard.KeyCode(vk=40))  # K
+            self.assertEqual(self.events, ["clarify"])
+        finally:
+            hotkey_manager.sys.platform = original
 
 
 if __name__ == "__main__":

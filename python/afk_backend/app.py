@@ -331,10 +331,9 @@ class AFKApp:
         return updated["hotkeys"]
 
     def _hotkeys_status(self, _params: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "available": self.hotkeys.available(),
-            "hotkeys": self.settings.get("hotkeys", {}),
-        }
+        status = self.hotkeys.status()
+        status["hotkeys"] = self.settings.get("hotkeys", {})
+        return status
 
     # ---- shared dictation flow ----
     def _paste(self, text: str) -> str:

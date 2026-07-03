@@ -15,8 +15,8 @@ function defaultHotkeys() {
     ? {
         push_to_talk: 'Option',
         toggle: 'Option+Space',
-        clarify: 'Ctrl+Option+K',
-        learn_correction: 'Ctrl+Option+L'
+        clarify: 'Cmd+Option+K',
+        learn_correction: 'Cmd+Option+L'
       }
     : {
         push_to_talk: 'Ctrl+Space',
@@ -31,13 +31,14 @@ function hotkeyOptions() {
     ? [
         'Option',
         'Option+Space',
-        'Ctrl+Option+K',
-        'Ctrl+Option+L',
-        'Ctrl+Option+D',
-        'Ctrl+Shift+K',
-        'Ctrl+Shift+L',
         'Cmd+Shift+K',
-        'Cmd+Shift+L'
+        'Cmd+Shift+L',
+        'Cmd+Option+K',
+        'Cmd+Option+L',
+        'Cmd+Option+D',
+        'Option+K',
+        'Option+L',
+        'Option+D'
       ]
     : [
         'Ctrl+Space',

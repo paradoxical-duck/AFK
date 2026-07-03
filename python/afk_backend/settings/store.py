@@ -25,8 +25,21 @@ WINDOWS_HOTKEYS = {
 MAC_HOTKEYS = {
     "push_to_talk": "Option",            # held to record
     "toggle": "Option+Space",            # toggle recording
-    "clarify": "Ctrl+Option+K",          # clarify selection/clipboard
-    "learn_correction": "Ctrl+Option+L", # learn selection/clipboard as correction
+    "clarify": "Cmd+Option+K",           # clarify selection/clipboard
+    "learn_correction": "Cmd+Option+L",  # learn selection/clipboard as correction
+}
+
+MAC_HOTKEY_MIGRATIONS = {
+    "Ctrl+Option+K": "Cmd+Option+K",
+    "Control+Option+K": "Cmd+Option+K",
+    "Ctrl+Option+L": "Cmd+Option+L",
+    "Control+Option+L": "Cmd+Option+L",
+    "Ctrl+Option+D": "Cmd+Option+D",
+    "Control+Option+D": "Cmd+Option+D",
+    "Ctrl+Shift+K": "Cmd+Shift+K",
+    "Control+Shift+K": "Cmd+Shift+K",
+    "Ctrl+Shift+L": "Cmd+Shift+L",
+    "Control+Shift+L": "Cmd+Shift+L",
 }
 
 
@@ -67,7 +80,10 @@ class SettingsStore:
                 with open(self._path, "r", encoding="utf-8") as fh:
                     user = json.load(fh)
                 data = _deep_merge(data, user)
+                before_migration = deepcopy(data)
                 data = _migrate_settings(data)
+                if data != before_migration:
+                    _atomic_write_json(self._path, data)
             except Exception as exc:  # noqa: BLE001
                 logutil.warn(f"Failed to read settings, using defaults: {exc}")
         return data
@@ -131,6 +147,10 @@ def _migrate_settings(data: Dict[str, Any]) -> Dict[str, Any]:
         if hotkeys.get("learn_correction") == WINDOWS_HOTKEYS["learn_correction"]:
             hotkeys["learn_correction"] = MAC_HOTKEYS["learn_correction"]
         data["_mac_hotkeys_migrated"] = True
+    if sys.platform == "darwin" and data.get("_mac_control_hotkeys_migrated") is not True:
+        for key, value in list(hotkeys.items()):
+            hotkeys[key] = MAC_HOTKEY_MIGRATIONS.get(value, value)
+        data["_mac_control_hotkeys_migrated"] = True
     data["hotkeys"] = hotkeys
     if data.get("word_count_threshold") in {4, 42, 60} and data.get("_word_count_threshold_migrated") is not True:
         data["word_count_threshold"] = DEFAULT_SETTINGS["word_count_threshold"]
