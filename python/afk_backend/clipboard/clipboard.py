@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 import sys
+import subprocess
 
 try:
     import pyperclip
@@ -134,11 +135,34 @@ class Clipboard:
     def type_text(self, text: str) -> None:
         """Type `text` directly into the focused window without touching
         the clipboard at all."""
+        if sys.platform == "darwin":
+            self._type_macos_text(text)
+            return
         if self._kb is None:
             raise RuntimeError(f"pynput unavailable: {_PYNPUT_ERR}")
         with self._lock:
             self._release_stuck_modifiers()
             self._kb.type(text)
+
+    def _type_macos_text(self, text: str) -> None:
+        script = f'''
+tell application "System Events"
+  keystroke "{_applescript_string(text)}"
+end tell
+'''
+        with self._lock:
+            self._release_stuck_modifiers()
+            result = subprocess.run(
+                ["/usr/bin/osascript"],
+                input=script,
+                text=True,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(err or "osascript keystroke failed")
 
     def delete_selection(self) -> None:
         """Delete the current selection (Backspace removes a selection in
@@ -219,36 +243,106 @@ class Clipboard:
     def paste_or_copy(self, text: str) -> str:
         """Insert into the focused window; copy only if insertion fails.
 
-        macOS browser omniboxes often ignore synthetic character typing from
-        helper processes. Use a real paste there and restore the clipboard once
-        the focused app has had time to consume it. Other platforms keep direct
-        typing so dictation does not touch the user's clipboard.
+        If focus is not editable, copy the transcript instead of pasting into
+        nowhere. Editable targets must never use the clipboard for dictation;
+        they receive synthetic text input directly.
         """
         if not text:
             return "empty"
         if sys.platform == "darwin":
+            target = active_text_target()
+            if target is False:
+                self.set_text(text)
+                return "copied"
             try:
-                self.paste_text(text, restore=True)
+                self.type_text(text)
                 return "pasted"
             except Exception as exc:  # noqa: BLE001
-                logutil.warn(f"mac paste failed; trying direct typing: {exc}")
+                logutil.warn(f"mac direct typing failed; not copying without a reliable non-text target: {exc}")
+                return "failed"
+        if not active_text_target():
+            self.set_text(text)
+            return "copied"
         try:
             self.type_text(text)
             return "pasted"
         except Exception as exc:  # noqa: BLE001
-            logutil.warn(f"type failed; copying instead: {exc}")
-            self.set_text(text)
-            return "copied"
+            logutil.warn(f"type failed; not copying because focus is editable: {exc}")
+            return "failed"
 
 
-def active_text_target() -> bool:
-    """Best-effort Windows check for whether the foreground focus has a caret."""
+def active_text_target() -> bool | None:
+    """Best-effort check for whether the foreground focus is text-editable."""
+    if sys.platform == "darwin":
+        return _active_text_target_macos()
+    if sys.platform != "win32":
+        return True
     try:
         import ctypes
 
         return _active_text_target_windows(ctypes)
     except Exception:
         return False
+
+
+def _active_text_target_macos() -> bool:
+    try:
+        import ApplicationServices as AS  # noqa: PLC0415
+
+        system = AS.AXUIElementCreateSystemWide()
+        err, focused = AS.AXUIElementCopyAttributeValue(
+            system,
+            AS.kAXFocusedUIElementAttribute,
+            None,
+        )
+        if err != 0 or focused is None:
+            return None
+
+        role = _ax_attr(focused, AS.kAXRoleAttribute)
+        subrole = _ax_attr(focused, AS.kAXSubroleAttribute)
+        editable_roles = {"AXTextArea", "AXTextField", "AXComboBox", "AXSearchField"}
+        if role in editable_roles or subrole in editable_roles:
+            return True
+
+        editable = _ax_attr(focused, "AXEditable")
+        if editable is True:
+            return True
+
+        if _ax_attr(focused, AS.kAXSelectedTextRangeAttribute) is not None:
+            return True
+        non_text_roles = {
+            "AXButton",
+            "AXCheckBox",
+            "AXColorWell",
+            "AXImage",
+            "AXMenu",
+            "AXMenuBar",
+            "AXMenuButton",
+            "AXMenuItem",
+            "AXPopUpButton",
+            "AXRadioButton",
+            "AXSlider",
+            "AXToolbar",
+        }
+        if role in non_text_roles:
+            return False
+    except Exception:
+        return None
+    return None
+
+
+def _ax_attr(element, name):
+    try:
+        import ApplicationServices as AS  # noqa: PLC0415
+
+        err, value = AS.AXUIElementCopyAttributeValue(element, name, None)
+        return value if err == 0 else None
+    except Exception:
+        return None
+
+
+def _applescript_string(value: str) -> str:
+    return (value or "").replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\n")
 
 
 def _active_text_target_windows(ctypes_module) -> bool:

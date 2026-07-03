@@ -54,29 +54,47 @@ class TestClipboardSelection(unittest.TestCase):
     @patch.object(clipmod.time, "sleep", lambda _s: None)
     def test_paste_or_copy_types_without_touching_clipboard(self):
         cb = FakeClipboard(prior="clipboard text")
-        with patch.object(clipmod.sys, "platform", "win32"):
+        with patch.object(clipmod.sys, "platform", "win32"), patch.object(clipmod, "active_text_target", lambda: True):
             self.assertEqual(cb.paste_or_copy("hello world"), "pasted")
         self.assertEqual(cb.get_text(), "clipboard text")
         self.assertEqual(cb.typed, ["hello world"])
         self.assertEqual(cb.pasted, 0)
 
     @patch.object(clipmod.time, "sleep", lambda _s: None)
-    def test_paste_or_copy_uses_restored_paste_on_macos(self):
+    def test_paste_or_copy_types_directly_on_macos_without_touching_clipboard(self):
         cb = FakeClipboard(prior="clipboard text")
-        with patch.object(clipmod.sys, "platform", "darwin"):
+        with patch.object(clipmod.sys, "platform", "darwin"), patch.object(clipmod, "active_text_target", lambda: True):
             self.assertEqual(cb.paste_or_copy("hello world"), "pasted")
         self.assertEqual(cb.get_text(), "clipboard text")
-        self.assertEqual(cb.typed, [])
-        self.assertEqual(cb.pasted, 1)
-        self.assertEqual(cb.values, ["clipboard text", "hello world", "clipboard text"])
+        self.assertEqual(cb.typed, ["hello world"])
+        self.assertEqual(cb.pasted, 0)
+        self.assertEqual(cb.values, ["clipboard text"])
 
     @patch.object(clipmod.time, "sleep", lambda _s: None)
-    def test_paste_or_copy_copies_only_when_typing_fails(self):
+    def test_paste_or_copy_types_on_macos_when_focus_is_unknown(self):
         cb = FakeClipboard(prior="clipboard text")
-        cb.fail_type = True
-        with patch.object(clipmod.sys, "platform", "win32"):
+        with patch.object(clipmod.sys, "platform", "darwin"), patch.object(clipmod, "active_text_target", lambda: None):
+            self.assertEqual(cb.paste_or_copy("hello world"), "pasted")
+        self.assertEqual(cb.get_text(), "clipboard text")
+        self.assertEqual(cb.typed, ["hello world"])
+        self.assertEqual(cb.pasted, 0)
+
+    @patch.object(clipmod.time, "sleep", lambda _s: None)
+    def test_paste_or_copy_copies_when_focus_is_not_text(self):
+        cb = FakeClipboard(prior="clipboard text")
+        with patch.object(clipmod, "active_text_target", lambda: False):
             self.assertEqual(cb.paste_or_copy("hello world"), "copied")
         self.assertEqual(cb.get_text(), "hello world")
+        self.assertEqual(cb.typed, [])
+        self.assertEqual(cb.pasted, 0)
+
+    @patch.object(clipmod.time, "sleep", lambda _s: None)
+    def test_paste_or_copy_does_not_copy_when_editable_typing_fails(self):
+        cb = FakeClipboard(prior="clipboard text")
+        cb.fail_type = True
+        with patch.object(clipmod.sys, "platform", "win32"), patch.object(clipmod, "active_text_target", lambda: True):
+            self.assertEqual(cb.paste_or_copy("hello world"), "failed")
+        self.assertEqual(cb.get_text(), "clipboard text")
         self.assertEqual(cb.typed, [])
         self.assertEqual(cb.pasted, 0)
 

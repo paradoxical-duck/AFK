@@ -224,7 +224,10 @@ function callBackendForHotkey(method, params = {}, timeoutMs) {
 function startRecordingFromHotkey() {
   if (recordingActive || finishingRecording) return;
   callBackendForHotkey('start_recording', {}).then((result) => {
-    if (result && result.recording) recordingActive = true;
+    if (result && result.recording) {
+      recordingActive = true;
+      updateTrayMenu();
+    }
   });
 }
 
@@ -291,7 +294,6 @@ function registerMacGlobalShortcut(name, combo, callback) {
 function configureMacGlobalShortcuts(hotkeys = {}) {
   if (process.platform !== 'darwin') return;
   clearMacGlobalShortcuts();
-  registerMacGlobalShortcut('toggle', hotkeys.toggle || 'Option+Space', toggleRecordingFromHotkey);
   registerMacGlobalShortcut('clarify', hotkeys.clarify || 'Cmd+Option+K', () => callBackendForHotkey('hotkey_clarify', {}, 10 * 60 * 1000));
   registerMacGlobalShortcut('learnCorrection', hotkeys.learn_correction || 'Cmd+Option+L', () => callBackendForHotkey('hotkey_learn_correction', {}, 10 * 60 * 1000));
 }
@@ -374,7 +376,7 @@ function configureMacHotkeys(hotkeys) {
   configureMacGlobalShortcuts(hotkeys || {});
   macHotkeys.configure({
     push_to_talk: (hotkeys && hotkeys.push_to_talk) || 'Option',
-    toggle: '',
+    toggle: (hotkeys && hotkeys.toggle) || 'Option+Space',
     clarify: '',
     learn_correction: ''
   });
@@ -406,15 +408,18 @@ function createTrayImage() {
   }
 }
 
-function createTray() {
-  tray = new Tray(createTrayImage());
-  tray.setToolTip('AFK — local speech-to-text');
-
+function updateTrayMenu() {
+  if (!tray) return;
   const menu = Menu.buildFromTemplate([
     { label: 'Open AFK', click: () => createWindow() },
+    {
+      label: recordingActive ? 'Stop transcription' : 'Start transcription',
+      enabled: backendReadyForHotkeys() && !finishingRecording,
+      click: () => toggleRecordingFromHotkey()
+    },
     { type: 'separator' },
     {
-      label: 'Backend status',
+      label: backendReadyForHotkeys() ? 'Backend ready' : 'Backend starting',
       enabled: false,
       id: 'status'
     },
@@ -428,6 +433,12 @@ function createTray() {
     }
   ]);
   tray.setContextMenu(menu);
+}
+
+function createTray() {
+  tray = new Tray(createTrayImage());
+  tray.setToolTip('AFK — local speech-to-text');
+  updateTrayMenu();
   tray.on('double-click', () => createWindow());
 }
 
@@ -472,12 +483,15 @@ function startBackend() {
     broadcast('backend:event', { event, data });
     if (event === 'recording_started') {
       recordingActive = true;
+      updateTrayMenu();
       setOverlayState('recording', { label: 'Listening' });
     } else if (event === 'recording_stopped') {
       recordingActive = false;
+      updateTrayMenu();
       setOverlayState('processing', { label: 'Transcribing' });
     } else if (event === 'transcription') {
       finishingRecording = false;
+      updateTrayMenu();
       const text = data && data.text ? String(data.text) : '';
       const reason = data && data.reason;
       const message = data && data.message;
@@ -503,6 +517,7 @@ function startBackend() {
     } else if (event === 'cancelled') {
       recordingActive = false;
       finishingRecording = false;
+      updateTrayMenu();
       setOverlayState('done', { label: 'Cancelled' });
       hideOverlaySoon(900);
     }

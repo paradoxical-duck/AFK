@@ -28,6 +28,7 @@ from .adaptation import AdaptationStore
 from .history import HistoryStore
 
 MIN_DICTATION_SECONDS = 0.35
+RECORDING_TAIL_SECONDS = 0.25
 
 
 class AFKApp:
@@ -197,6 +198,8 @@ class AFKApp:
 
     def stop_recording(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Stop recording, condition the audio, transcribe, and return text."""
+        if getattr(self.recorder, "is_recording", False):
+            time.sleep(RECORDING_TAIL_SECONDS)
         captured = self.recorder.stop()
         emit_event("recording_stopped", {"duration": captured["duration"]})
 

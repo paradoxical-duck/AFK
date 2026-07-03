@@ -83,6 +83,8 @@ class TestDispatch(unittest.TestCase):
 
     def test_short_recording_skips_transcription(self):
         class FakeRecorder:
+            is_recording = False
+
             def stop(self):
                 return {
                     "audio": np.ones(800, dtype=np.float32),
@@ -99,6 +101,32 @@ class TestDispatch(unittest.TestCase):
         result = self.app.stop_recording({})
         self.assertEqual(result["text"], "")
         self.assertEqual(result["reason"], "too_short")
+
+    def test_stop_recording_waits_for_tail_before_stopping(self):
+        events = []
+
+        class FakeRecorder:
+            is_recording = True
+
+            def stop(self):
+                events.append("stop")
+                return {
+                    "audio": np.zeros(0, dtype=np.float32),
+                    "duration": 0.4,
+                    "sr": 16000,
+                }
+
+        self.app.recorder = FakeRecorder()
+        from afk_backend import app as appmod
+
+        original_sleep = appmod.time.sleep
+        try:
+            appmod.time.sleep = lambda seconds: events.append(("sleep", seconds))
+            self.app.stop_recording({})
+        finally:
+            appmod.time.sleep = original_sleep
+        self.assertEqual(events[0], ("sleep", appmod.RECORDING_TAIL_SECONDS))
+        self.assertEqual(events[1], "stop")
 
 
 class TestSubprocessRpc(unittest.TestCase):

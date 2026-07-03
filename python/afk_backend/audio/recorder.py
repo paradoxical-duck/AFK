@@ -235,7 +235,7 @@ def signal_too_quiet(audio: np.ndarray) -> bool:
     return lv["rms"] < MIN_SIGNAL_RMS and lv["peak"] < MIN_SIGNAL_PEAK
 
 
-def _trim_silence(x: np.ndarray, sr: int, thresh: float = 0.012, pad_ms: int = 80) -> np.ndarray:
+def _trim_silence(x: np.ndarray, sr: int, thresh: float = 0.012, pad_ms: int = 180) -> np.ndarray:
     if x.size == 0:
         return x
     abs_x = np.abs(x)
