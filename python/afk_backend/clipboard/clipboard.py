@@ -38,7 +38,11 @@ from .. import logutil
 # changes before AFK restores or touches the clipboard again.
 _CLIPBOARD_SETTLE = 0.08
 _KEY_SETTLE = 0.02
-_PASTE_SETTLE = 0.25
+_PASTE_SETTLE = 0.45
+_MAC_KEYCODES = {
+    "c": 8,
+    "v": 9,
+}
 
 
 class Clipboard:
@@ -84,6 +88,12 @@ class Clipboard:
     def _tap_combo(self, modifier, letter: str) -> None:
         if self._kb is None:
             raise RuntimeError(f"pynput unavailable: {_PYNPUT_ERR}")
+        if sys.platform == "darwin" and modifier == Key.cmd and letter in _MAC_KEYCODES:
+            try:
+                self._tap_macos_shortcut(letter)
+                return
+            except Exception as exc:  # noqa: BLE001
+                logutil.warn(f"mac pid-targeted shortcut failed; falling back to pynput: {exc}")
         with self._lock:
             self._release_stuck_modifiers()
             self._kb.press(modifier)
@@ -91,6 +101,25 @@ class Clipboard:
             time.sleep(_KEY_SETTLE)
             self._kb.release(letter)
             self._kb.release(modifier)
+
+    def _tap_macos_shortcut(self, letter: str) -> None:
+        import Quartz  # noqa: PLC0415
+        from AppKit import NSWorkspace  # noqa: PLC0415
+
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        pid = int(app.processIdentifier()) if app else 0
+        if pid <= 0:
+            raise RuntimeError("no frontmost app pid")
+        flags = Quartz.kCGEventFlagMaskCommand
+        keycode = _MAC_KEYCODES[letter]
+        with self._lock:
+            down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
+            Quartz.CGEventSetFlags(down, flags)
+            Quartz.CGEventPostToPid(pid, down)
+            time.sleep(_KEY_SETTLE)
+            up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
+            Quartz.CGEventSetFlags(up, flags)
+            Quartz.CGEventPostToPid(pid, up)
 
     def _shortcut_modifier(self):
         return Key.cmd if sys.platform == "darwin" else Key.ctrl
@@ -172,26 +201,37 @@ class Clipboard:
         return self.paste_text(text, restore=False)
 
     def replace_selection_typed(self, text: str) -> bool:
-        """Replace the currently selected text by deleting it and typing the
-        replacement directly. Never touches the clipboard, so the user's
-        clipboard is left exactly as it was before Clarify ran."""
+        """Replace the current selection while preserving the clipboard.
+
+        On macOS, browser address/search fields are much more reliable with a
+        real paste command than with synthetic character typing, so paste and
+        restore the clipboard. Other platforms keep the old direct-typing path.
+        """
         if not text:
             return False
+        if sys.platform == "darwin":
+            return self.paste_text(text, restore=True)
         self.delete_selection()
         time.sleep(_KEY_SETTLE)
         self.type_text(text)
         return True
 
     def paste_or_copy(self, text: str) -> str:
-        """Type directly into the focused window; copy only if typing fails.
+        """Insert into the focused window; copy only if insertion fails.
 
-        Typing avoids the clipboard entirely so dictation never clobbers
-        whatever the user had copied. Falls back to leaving the text on the
-        clipboard only if synthetic typing itself raises (e.g. no keyboard
-        backend available).
+        macOS browser omniboxes often ignore synthetic character typing from
+        helper processes. Use a real paste there and restore the clipboard once
+        the focused app has had time to consume it. Other platforms keep direct
+        typing so dictation does not touch the user's clipboard.
         """
         if not text:
             return "empty"
+        if sys.platform == "darwin":
+            try:
+                self.paste_text(text, restore=True)
+                return "pasted"
+            except Exception as exc:  # noqa: BLE001
+                logutil.warn(f"mac paste failed; trying direct typing: {exc}")
         try:
             self.type_text(text)
             return "pasted"

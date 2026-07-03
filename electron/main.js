@@ -51,9 +51,11 @@ let macHotkeyPermissionTimer = null;
 let macGlobalShortcutAccelerators = [];
 
 const DEV = !!process.env.AFK_DEV;
+const PROMPT_ACCESSIBILITY = process.argv.includes('--prompt-accessibility');
 const APP_USER_MODEL_ID = 'com.afk.app';
 const APP_ICON_PATH = path.join(__dirname, '..', 'assets', 'icon.ico');
 const TRAY_ICON_PATH = path.join(__dirname, '..', 'assets', 'tray.png');
+const TRAY_TEMPLATE_ICON_PATH = path.join(__dirname, '..', 'assets', 'trayTemplate.png');
 
 if (process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID);
@@ -385,17 +387,24 @@ function configureMacHotkeys(hotkeys) {
   if (!attemptStartMacHotkeys()) waitForMacHotkeyPermission();
 }
 
-function createTray() {
-  let image;
+function createTrayImage() {
   try {
-    image = nativeImage.createFromPath(TRAY_ICON_PATH);
+    const primary = process.platform === 'darwin' ? TRAY_TEMPLATE_ICON_PATH : TRAY_ICON_PATH;
+    let image = nativeImage.createFromPath(primary);
     if (image.isEmpty()) image = nativeImage.createFromPath(APP_ICON_PATH);
-    if (image.isEmpty()) image = nativeImage.createEmpty();
+    if (image.isEmpty()) return nativeImage.createEmpty();
+    if (process.platform === 'darwin') {
+      image = image.resize({ width: 18, height: 18 });
+      image.setTemplateImage(true);
+    }
+    return image;
   } catch (_) {
-    image = nativeImage.createEmpty();
+    return nativeImage.createEmpty();
   }
+}
 
-  tray = new Tray(image);
+function createTray() {
+  tray = new Tray(createTrayImage());
   tray.setToolTip('AFK — local speech-to-text');
 
   const menu = Menu.buildFromTemplate([
@@ -548,6 +557,10 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   logger.init(paths.logsDir());
   logger.info('AFK starting up');
+  if (PROMPT_ACCESSIBILITY && process.platform === 'darwin') {
+    logger.info('mac accessibility permission prompt requested by setup flag');
+    macAccessibilityTrusted(true);
+  }
 
   registerIpc();
   createTray();
