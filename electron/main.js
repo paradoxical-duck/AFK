@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, systemPreferences, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -48,7 +48,7 @@ let finishingRecording = false;
 let macHotkeyError = '';
 let macHotkeyLastConfig = null;
 let macHotkeyPermissionTimer = null;
-let macHotkeyPermissionPrompted = false;
+let macGlobalShortcutAccelerators = [];
 
 const DEV = !!process.env.AFK_DEV;
 const APP_USER_MODEL_ID = 'com.afk.app';
@@ -239,6 +239,61 @@ function toggleRecordingFromHotkey() {
   else startRecordingFromHotkey();
 }
 
+function comboToAccelerator(combo) {
+  const parts = String(combo || '').split('+').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return '';
+  return parts.map((part) => {
+    const lower = part.toLowerCase();
+    if (lower === 'option' || lower === 'alt') return 'Alt';
+    if (lower === 'cmd' || lower === 'command' || lower === 'meta') return 'Command';
+    if (lower === 'ctrl' || lower === 'control') return 'Control';
+    if (lower === 'shift') return 'Shift';
+    if (lower === 'space' || lower === 'spacebar') return 'Space';
+    if (part.length === 1) return part.toUpperCase();
+    return part;
+  }).join('+');
+}
+
+function clearMacGlobalShortcuts() {
+  if (process.platform !== 'darwin') return;
+  for (const accelerator of macGlobalShortcutAccelerators) {
+    try {
+      globalShortcut.unregister(accelerator);
+    } catch (_) {
+      // ignore unregister races
+    }
+  }
+  macGlobalShortcutAccelerators = [];
+}
+
+function registerMacGlobalShortcut(name, combo, callback) {
+  const accelerator = comboToAccelerator(combo);
+  if (!accelerator) return;
+  try {
+    globalShortcut.unregister(accelerator);
+    const ok = globalShortcut.register(accelerator, () => {
+      logger.info(`mac global shortcut action: ${name}`);
+      callback();
+    });
+    if (ok) {
+      macGlobalShortcutAccelerators.push(accelerator);
+      logger.info(`mac global shortcut registered: ${name} (${accelerator})`);
+    } else {
+      logger.warn(`mac global shortcut registration failed: ${name} (${accelerator})`);
+    }
+  } catch (err) {
+    logger.error(`mac global shortcut registration error: ${name} (${accelerator}): ${err.message || err}`);
+  }
+}
+
+function configureMacGlobalShortcuts(hotkeys = {}) {
+  if (process.platform !== 'darwin') return;
+  clearMacGlobalShortcuts();
+  registerMacGlobalShortcut('toggle', hotkeys.toggle || 'Option+Space', toggleRecordingFromHotkey);
+  registerMacGlobalShortcut('clarify', hotkeys.clarify || 'Cmd+Option+K', () => callBackendForHotkey('hotkey_clarify', {}, 10 * 60 * 1000));
+  registerMacGlobalShortcut('learnCorrection', hotkeys.learn_correction || 'Cmd+Option+L', () => callBackendForHotkey('hotkey_learn_correction', {}, 10 * 60 * 1000));
+}
+
 function macAccessibilityTrusted(prompt = false) {
   if (process.platform !== 'darwin') return true;
   try {
@@ -270,13 +325,30 @@ function clearMacHotkeyPermissionTimer() {
   macHotkeyPermissionTimer = null;
 }
 
+function attemptStartMacHotkeys(logFailure = true) {
+  if (!macHotkeys) return false;
+  if (macHotkeys.isListening && macHotkeys.isListening()) return true;
+  try {
+    macHotkeys.start();
+    clearMacHotkeyPermissionTimer();
+    macHotkeyError = '';
+    return true;
+  } catch (err) {
+    macHotkeyError = err.message || String(err);
+    const message = `mac native hotkey listener failed: ${err.message || err}`;
+    if (logFailure) logger.error(message);
+    else logger.debug(message);
+    return false;
+  }
+}
+
 function waitForMacHotkeyPermission() {
   if (process.platform !== 'darwin' || macHotkeyPermissionTimer) return;
   macHotkeyPermissionTimer = setInterval(() => {
-    if (macAccessibilityTrusted(false) !== true) return;
-    clearMacHotkeyPermissionTimer();
-    logger.info('mac accessibility permission granted; starting native hotkeys');
-    configureMacHotkeys(macHotkeyLastConfig || {});
+    const trusted = macAccessibilityTrusted(false);
+    if (attemptStartMacHotkeys(trusted === true)) {
+      logger.info('mac native hotkey listener started after permission retry');
+    }
   }, 3000);
 }
 
@@ -296,26 +368,21 @@ function configureMacHotkeys(hotkeys) {
       logger
     );
   }
-  macHotkeys.configure(hotkeys || {});
+  configureMacGlobalShortcuts(hotkeys || {});
+  macHotkeys.configure({
+    push_to_talk: (hotkeys && hotkeys.push_to_talk) || 'Option',
+    toggle: '',
+    clarify: '',
+    learn_correction: ''
+  });
 
-  const trusted = macAccessibilityTrusted(!macHotkeyPermissionPrompted);
-  macHotkeyPermissionPrompted = true;
+  const trusted = macAccessibilityTrusted(false);
   if (trusted === false) {
     macHotkeyError = 'Accessibility permission needed for AFK.app';
-    logger.warn('mac native hotkey listener waiting for Accessibility permission for AFK.app');
-    waitForMacHotkeyPermission();
-    return;
+    logger.warn('mac accessibility trust query is false; attempting native listener anyway');
   }
 
-  try {
-    macHotkeys.start();
-    clearMacHotkeyPermissionTimer();
-    macHotkeyError = '';
-  } catch (err) {
-    macHotkeyError = err.message || String(err);
-    logger.error(`mac native hotkey listener failed: ${err.message || err}`);
-    waitForMacHotkeyPermission();
-  }
+  if (!attemptStartMacHotkeys()) waitForMacHotkeyPermission();
 }
 
 function createTray() {
@@ -504,6 +571,7 @@ app.on('window-all-closed', (e) => {
 app.on('before-quit', () => {
   isQuitting = true;
   clearMacHotkeyPermissionTimer();
+  clearMacGlobalShortcuts();
   if (macHotkeys) macHotkeys.stop();
   if (bridge) bridge.stop();
 });

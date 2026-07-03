@@ -70,11 +70,14 @@ class MacHotkeyManager {
   }
 
   configure(hotkeys = {}) {
+    const getHotkey = (name, fallback) => (
+      Object.prototype.hasOwnProperty.call(hotkeys, name) ? hotkeys[name] : fallback
+    );
     this.bindings = {
-      push_to_talk: parseCombo(hotkeys.push_to_talk || 'Option'),
-      toggle: parseCombo(hotkeys.toggle || 'Option+Space'),
-      clarify: parseCombo(hotkeys.clarify || 'Cmd+Option+K'),
-      learn_correction: parseCombo(hotkeys.learn_correction || 'Cmd+Option+L')
+      push_to_talk: parseCombo(getHotkey('push_to_talk', 'Option')),
+      toggle: parseCombo(getHotkey('toggle', 'Option+Space')),
+      clarify: parseCombo(getHotkey('clarify', 'Cmd+Option+K')),
+      learn_correction: parseCombo(getHotkey('learn_correction', 'Cmd+Option+L'))
     };
     this._log('info', `mac hotkeys configured: ${JSON.stringify(hotkeys)}`);
   }
