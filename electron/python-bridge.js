@@ -61,7 +61,8 @@ class PythonBridge extends EventEmitter {
         AFK_MODELS_DIR: this.options.modelsDir || '',
         AFK_RESOURCES: this.options.resourcesPath || '',
         PYTHONUNBUFFERED: '1',
-        PYTHONIOENCODING: 'utf-8'
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONDONTWRITEBYTECODE: '1'
       }
     });
 
