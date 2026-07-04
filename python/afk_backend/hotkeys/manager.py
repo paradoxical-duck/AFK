@@ -126,7 +126,7 @@ def _norm(key) -> Tuple[str, str]:
 
 class HotkeyManager:
     def __init__(self, callbacks: Dict[str, Callable[[], None]], event_observer: Optional[Callable[[Dict[str, object]], None]] = None):
-        """callbacks: keys 'ptt_start','ptt_stop','toggle','clarify','learn_correction','cancel'."""
+        """callbacks include normal/code PTT, toggles, clarify, learn, cancel."""
         self._cb = callbacks
         self._event_observer = event_observer
         self._listener = None
@@ -136,6 +136,7 @@ class HotkeyManager:
         self._pressed_mods = set()
         self._main_down: Optional[str] = None
         self._ptt_on = False
+        self._code_ptt_on = False
         self._ptt_pending_timer: Optional[threading.Timer] = None
         self._fired_edge = False  # debounce edge-triggered actions per press
         self._esc_fired = False  # debounce Escape (cancel) per press
@@ -151,6 +152,8 @@ class HotkeyManager:
         for action, default in (
             ("push_to_talk", "option" if _is_macos() else "ctrl+space"),
             ("toggle", "option+space" if _is_macos() else "ctrl+shift+space"),
+            ("code_push_to_talk", "option+shift+space" if _is_macos() else "ctrl+alt+j"),
+            ("code_toggle", "cmd+option+space" if _is_macos() else "ctrl+shift+j"),
             ("clarify", "ctrl+alt+k"),
             ("learn_correction", "ctrl+alt+l"),
         ):
@@ -224,6 +227,7 @@ class HotkeyManager:
         if kind == "mod":
             self._pressed_mods.add(token)
             self._evaluate_ptt()
+            self._evaluate_code_ptt()
             return
         # Escape always cancels whatever is in progress (dictation or
         # Clarify), regardless of which modifiers happen to be held.
@@ -235,6 +239,7 @@ class HotkeyManager:
         # main key down
         self._main_down = token
         self._evaluate_ptt()
+        self._evaluate_code_ptt()
         self._evaluate_edge()
 
     def _on_release(self, key):
@@ -245,6 +250,7 @@ class HotkeyManager:
         if kind == "mod":
             self._pressed_mods.discard(token)
             self._evaluate_ptt()
+            self._evaluate_code_ptt()
             return
         if token == "esc":
             self._esc_fired = False
@@ -253,6 +259,7 @@ class HotkeyManager:
             self._main_down = None
             self._fired_edge = False
             self._evaluate_ptt()
+            self._evaluate_code_ptt()
 
     def _evaluate_ptt(self):
         combo = self._bindings.get("push_to_talk")
@@ -272,6 +279,19 @@ class HotkeyManager:
             self._fire("ptt_stop")
         elif not active:
             self._cancel_pending_ptt()
+
+    def _evaluate_code_ptt(self):
+        combo = self._bindings.get("code_push_to_talk")
+        if not combo:
+            return
+        mods, main = combo
+        active = main is not None and self._main_down == main and self._pressed_mods == mods
+        if active and not self._code_ptt_on:
+            self._code_ptt_on = True
+            self._fire("code_ptt_start")
+        elif not active and self._code_ptt_on:
+            self._code_ptt_on = False
+            self._fire("code_ptt_stop")
 
     def _schedule_modifier_only_ptt(self):
         if self._ptt_pending_timer is not None:
@@ -302,7 +322,7 @@ class HotkeyManager:
     def _evaluate_edge(self):
         if self._fired_edge or self._main_down is None:
             return
-        for action in ("toggle", "clarify", "learn_correction"):
+        for action in ("toggle", "code_toggle", "clarify", "learn_correction"):
             combo = self._bindings.get(action)
             if not combo:
                 continue

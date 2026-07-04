@@ -20,6 +20,8 @@ WINDOWS_HOTKEYS = {
     "toggle": "Ctrl+Shift+Space",        # toggle recording
     "clarify": "Ctrl+Alt+K",             # clarify selection/clipboard
     "learn_correction": "Ctrl+Alt+L",    # learn selection/clipboard as correction
+    "code_push_to_talk": "Ctrl+Alt+J",   # held to record code
+    "code_toggle": "Ctrl+Shift+J",        # toggle code recording
 }
 
 MAC_HOTKEYS = {
@@ -27,6 +29,8 @@ MAC_HOTKEYS = {
     "toggle": "Option+Space",            # toggle recording
     "clarify": "Cmd+Option+K",           # clarify selection/clipboard
     "learn_correction": "Cmd+Option+L",  # learn selection/clipboard as correction
+    "code_push_to_talk": "Option+Shift+Space",  # held to record code
+    "code_toggle": "Cmd+Option+Space",           # toggle code recording
 }
 
 MAC_HOTKEY_MIGRATIONS = {
@@ -61,6 +65,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "logging": True,
     "developer_mode": False,
     "hotkeys": default_hotkeys(),
+    "code_language": "auto",
     "noise_suppression": True,
     "auto_gain": True,
     "silence_trim": True,
@@ -137,6 +142,10 @@ def _migrate_settings(data: Dict[str, Any]) -> Dict[str, Any]:
         hotkeys["toggle"] = DEFAULT_SETTINGS["hotkeys"]["toggle"]
     if not hotkeys.get("learn_correction"):
         hotkeys["learn_correction"] = DEFAULT_SETTINGS["hotkeys"]["learn_correction"]
+    if not hotkeys.get("code_push_to_talk"):
+        hotkeys["code_push_to_talk"] = DEFAULT_SETTINGS["hotkeys"]["code_push_to_talk"]
+    if not hotkeys.get("code_toggle"):
+        hotkeys["code_toggle"] = DEFAULT_SETTINGS["hotkeys"]["code_toggle"]
     if sys.platform == "darwin" and data.get("_mac_hotkeys_migrated") is not True:
         if hotkeys.get("push_to_talk") == WINDOWS_HOTKEYS["push_to_talk"]:
             hotkeys["push_to_talk"] = MAC_HOTKEYS["push_to_talk"]
@@ -146,6 +155,10 @@ def _migrate_settings(data: Dict[str, Any]) -> Dict[str, Any]:
             hotkeys["clarify"] = MAC_HOTKEYS["clarify"]
         if hotkeys.get("learn_correction") == WINDOWS_HOTKEYS["learn_correction"]:
             hotkeys["learn_correction"] = MAC_HOTKEYS["learn_correction"]
+        if hotkeys.get("code_push_to_talk") == WINDOWS_HOTKEYS["code_push_to_talk"]:
+            hotkeys["code_push_to_talk"] = MAC_HOTKEYS["code_push_to_talk"]
+        if hotkeys.get("code_toggle") == WINDOWS_HOTKEYS["code_toggle"]:
+            hotkeys["code_toggle"] = MAC_HOTKEYS["code_toggle"]
         data["_mac_hotkeys_migrated"] = True
     if sys.platform == "darwin" and data.get("_mac_control_hotkeys_migrated") is not True:
         for key, value in list(hotkeys.items()):

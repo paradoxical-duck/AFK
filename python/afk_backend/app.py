@@ -23,6 +23,7 @@ from .transcription.transcriber import Transcriber
 from .clipboard.clipboard import Clipboard
 from .hotkeys import HotkeyManager
 from .clarify.engine import ClarifyEngine
+from .code_mode import CodeProcessor
 from .statistics import StatsStore
 from .adaptation import AdaptationStore
 from .history import HistoryStore
@@ -48,6 +49,9 @@ class AFKApp:
                 "ptt_start": self._hk_ptt_start,
                 "ptt_stop": self._hk_ptt_stop,
                 "toggle": self._hk_toggle,
+                "code_ptt_start": self._hk_code_ptt_start,
+                "code_ptt_stop": self._hk_code_ptt_stop,
+                "code_toggle": self._hk_code_toggle,
                 "clarify": self._hk_clarify,
                 "learn_correction": self._hk_learn_correction,
                 "cancel": self._hk_cancel,
@@ -61,6 +65,7 @@ class AFKApp:
 
         # Phase 4 service.
         self.clarifier = ClarifyEngine()
+        self.code_processor = CodeProcessor()
 
         # Phase 5 service.
         self.statistics = StatsStore()
@@ -179,6 +184,8 @@ class AFKApp:
         self.register("start_recording", self.start_recording)
         self.register("stop_recording", self.stop_recording)
         self.register("finish_recording", self.finish_recording)
+        self.register("finish_code_recording", self.finish_code_recording)
+        self.register("format_code_text", self._format_code_text_method)
         self.register("transcribe", self.transcribe)
 
     def _load_asr(self, _params: Dict[str, Any]) -> Dict[str, Any]:
@@ -234,6 +241,7 @@ class AFKApp:
             return result
 
         s = self.settings.all()
+        apply_text_formatting = params.get("apply_text_formatting", True)
         audio = process_audio(
             audio,
             sr=captured["sr"],
@@ -260,7 +268,7 @@ class AFKApp:
                 }
             )
         if result.get("text"):
-            if s.get("training_corrections", True):
+            if apply_text_formatting and s.get("training_corrections", True):
                 adapted, changed, applied = self.adaptation.apply(result.get("text", ""))
             else:
                 adapted, changed, applied = result.get("text", ""), False, []
@@ -270,15 +278,16 @@ class AFKApp:
                 result["adapted"] = True
                 result["adaptations"] = applied
                 logutil.info(f"Applied {len(applied)} learned correction(s)")
-            formatted = _format_transcript_text(
-                result.get("text", ""),
-                capitalization=s.get("auto_capitalization", True),
-                punctuation=s.get("auto_punctuation", True),
-            )
-            if formatted != result.get("text", ""):
-                result.setdefault("raw_text", result.get("text", ""))
-                result["text"] = formatted
-                result["formatted"] = True
+            if apply_text_formatting:
+                formatted = _format_transcript_text(
+                    result.get("text", ""),
+                    capitalization=s.get("auto_capitalization", True),
+                    punctuation=s.get("auto_punctuation", True),
+                )
+                if formatted != result.get("text", ""):
+                    result.setdefault("raw_text", result.get("text", ""))
+                    result["text"] = formatted
+                    result["formatted"] = True
             self._last_dictation_text = result.get("text", "")
         # Record usage stats (words dictated, recording length, transcription latency).
         try:
@@ -325,6 +334,21 @@ class AFKApp:
             logutil.error(f"stop/transcribe failed: {exc}")
             raise
         return self._clarify_and_insert(result)
+
+    def finish_code_recording(self, _params: Dict[str, Any]) -> Dict[str, Any]:
+        """Stop, transcribe, format as code, then paste or copy the code."""
+        try:
+            result = self.stop_recording({"apply_text_formatting": False})
+        except Exception as exc:  # noqa: BLE001
+            logutil.error(f"stop/code-transcribe failed: {exc}")
+            raise
+        return self._code_and_insert(result)
+
+    def _format_code_text_method(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self.code_processor.process(
+            params.get("text", ""),
+            language=params.get("language") or self.settings.get("code_language", "auto"),
+        )
 
     # ---- clipboard + hotkeys methods (Phase 3) ----
     def _register_clipboard_hotkeys(self) -> None:
@@ -426,6 +450,14 @@ class AFKApp:
             return
         self._clarify_and_insert(result)
 
+    def _stop_transcribe_code_paste(self) -> None:
+        try:
+            result = self.stop_recording({"apply_text_formatting": False})
+        except Exception as exc:  # noqa: BLE001
+            logutil.error(f"stop/code-transcribe failed: {exc}")
+            return
+        self._code_and_insert(result)
+
     def _clarify_and_insert(self, result: Dict[str, Any]) -> Dict[str, Any]:
         text = (result or {}).get("text", "")
         if not text or self._abort_event.is_set():
@@ -456,6 +488,39 @@ class AFKApp:
         self._record_history(text, result.get("action", ""))
         return result
 
+    def _code_and_insert(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        text = (result or {}).get("text", "")
+        if not text or self._abort_event.is_set():
+            return result or {}
+        language = self.settings.get("code_language", "auto")
+        emit_event("code_format_started", {"language": language})
+        formatted = self.code_processor.process(text, language=language)
+        code = formatted.get("text", "") or text
+        result["raw_code_text"] = text
+        result["text"] = code
+        result["code_mode"] = True
+        result["code_language"] = formatted.get("language", language)
+        result["code_processor"] = formatted.get("processor", "deterministic")
+        emit_event(
+            "code_formatted",
+            {
+                "text": code,
+                "raw_text": text,
+                "language": result["code_language"],
+                "processor": result["code_processor"],
+            },
+        )
+        if self._abort_event.is_set():
+            emit_event("cancelled", {"source": "code"})
+            return result
+        if self.settings.get("auto_paste", True):
+            result["action"] = self._paste(code)
+            result["inserted"] = True
+            self._last_inserted_text = code
+        self._last_dictation_text = code
+        self._record_history(code, result.get("action", ""))
+        return result
+
     # ---- hotkey callbacks (run on the listener thread; offload heavy work) ----
     def _hk_ptt_start(self) -> None:
         threading.Thread(target=self._start_rec_safe, daemon=True).start()
@@ -469,21 +534,17 @@ class AFKApp:
         else:
             threading.Thread(target=self._start_rec_safe, daemon=True).start()
 
-    def _hk_cancel(self) -> None:
-        """Escape: abort whatever's in progress (dictation or Clarify)
-        without transcribing/pasting/replacing anything."""
-        self._abort_event.set()
-        if self.recorder.is_recording:
-            threading.Thread(target=self._cancel_recording, daemon=True).start()
-        else:
-            emit_event("cancelled", {})
+    def _hk_code_ptt_start(self) -> None:
+        threading.Thread(target=self._start_rec_safe, daemon=True).start()
 
-    def _cancel_recording(self) -> None:
-        try:
-            self.recorder.stop()  # discard captured audio
-        except Exception as exc:  # noqa: BLE001
-            logutil.error(f"cancel recording failed: {exc}")
-        emit_event("cancelled", {"source": "dictation"})
+    def _hk_code_ptt_stop(self) -> None:
+        threading.Thread(target=self._stop_transcribe_code_paste, daemon=True).start()
+
+    def _hk_code_toggle(self) -> None:
+        if self.recorder.is_recording:
+            threading.Thread(target=self._stop_transcribe_code_paste, daemon=True).start()
+        else:
+            threading.Thread(target=self._start_rec_safe, daemon=True).start()
 
     def _hk_clarify(self) -> None:
         threading.Thread(target=self._clarify_flow, daemon=True).start()

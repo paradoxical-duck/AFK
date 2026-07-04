@@ -16,13 +16,17 @@ function defaultHotkeys() {
         push_to_talk: 'Option',
         toggle: 'Option+Space',
         clarify: 'Cmd+Option+K',
-        learn_correction: 'Cmd+Option+L'
+        learn_correction: 'Cmd+Option+L',
+        code_push_to_talk: 'Option+Shift+Space',
+        code_toggle: 'Cmd+Option+Space'
       }
     : {
         push_to_talk: 'Ctrl+Space',
         toggle: 'Ctrl+Shift+Space',
         clarify: 'Ctrl+Alt+K',
-        learn_correction: 'Ctrl+Alt+L'
+        learn_correction: 'Ctrl+Alt+L',
+        code_push_to_talk: 'Ctrl+Alt+J',
+        code_toggle: 'Ctrl+Shift+J'
       };
 }
 
@@ -31,6 +35,8 @@ function hotkeyOptions() {
     ? [
         'Option',
         'Option+Space',
+        'Option+Shift+Space',
+        'Cmd+Option+Space',
         'Cmd+Shift+K',
         'Cmd+Shift+L',
         'Cmd+Option+K',
@@ -53,6 +59,22 @@ function hotkeyOptions() {
         'Ctrl+Alt+J',
         'Ctrl+Shift+J'
       ];
+}
+
+function codeLanguageOptions(selected) {
+  const options = [
+    ['auto', 'Auto'],
+    ['python', 'Python'],
+    ['javascript', 'JavaScript'],
+    ['typescript', 'TypeScript'],
+    ['swift', 'Swift'],
+    ['java', 'Java'],
+    ['cpp', 'C++'],
+    ['shell', 'Shell']
+  ];
+  return options.map(([value, label]) =>
+    `<option value="${escapeHtml(value)}" ${selected === value ? 'selected' : ''}>${escapeHtml(label)}</option>`
+  ).join('');
 }
 
 function escapeHtml(value) {
@@ -399,6 +421,8 @@ async function refreshHotkeys() {
     $('#toggleHotkey').textContent = hk.toggle || defaults.toggle;
     $('#clarifyHotkey').textContent = hk.clarify || defaults.clarify;
     $('#learnHotkey').textContent = hk.learn_correction || defaults.learn_correction;
+    if ($('#codeHoldHotkey')) $('#codeHoldHotkey').textContent = hk.code_push_to_talk || defaults.code_push_to_talk;
+    if ($('#codeToggleHotkey')) $('#codeToggleHotkey').textContent = hk.code_toggle || defaults.code_toggle;
     refreshHotkeyStatus();
   } catch (e) {
     const defaults = defaultHotkeys();
@@ -406,6 +430,8 @@ async function refreshHotkeys() {
     $('#toggleHotkey').textContent = defaults.toggle;
     $('#clarifyHotkey').textContent = defaults.clarify;
     $('#learnHotkey').textContent = defaults.learn_correction;
+    if ($('#codeHoldHotkey')) $('#codeHoldHotkey').textContent = defaults.code_push_to_talk;
+    if ($('#codeToggleHotkey')) $('#codeToggleHotkey').textContent = defaults.code_toggle;
     setText('#hotkeyStatus', 'Unavailable');
   }
 }
@@ -501,7 +527,9 @@ function configuredHotkeys() {
     hk.push_to_talk || defaults.push_to_talk,
     hk.toggle || defaults.toggle,
     hk.clarify || defaults.clarify,
-    hk.learn_correction || defaults.learn_correction
+    hk.learn_correction || defaults.learn_correction,
+    hk.code_push_to_talk || defaults.code_push_to_talk,
+    hk.code_toggle || defaults.code_toggle
   ];
 }
 
@@ -851,9 +879,12 @@ async function refreshSettings() {
       settingRow('Capitalization', 'Capitalize transcripts automatically', toggleHtml('set-auto_capitalization', cfg.auto_capitalization !== false)) +
       settingRow('Punctuation', 'Keep punctuation from speech recognition', toggleHtml('set-auto_punctuation', cfg.auto_punctuation !== false)) +
       settingRow('Training corrections', 'Apply words and triggers from the Train tab', toggleHtml('set-training_corrections', cfg.training_corrections !== false)) +
+      settingRow('Code language', 'Target language for code mode formatting', `<select id="set-code_language">${codeLanguageOptions(cfg.code_language || 'auto')}</select>`) +
       settingRow('Word-count threshold', 'Use the long model above this number of words', `<input type="number" id="set-word_count_threshold" min="1" max="500" value="${escapeHtml(cfg.word_count_threshold)}">`) +
       settingRow('Push-to-talk hotkey', 'Hold to record', `<select id="hk-push_to_talk">${optionsHtml(options, hk.push_to_talk || defaults.push_to_talk)}</select>`) +
       settingRow('Toggle hotkey', 'Press once to start or stop', `<select id="hk-toggle">${optionsHtml(options, hk.toggle || defaults.toggle)}</select>`) +
+      settingRow('Code hold hotkey', 'Hold to dictate code syntax', `<select id="hk-code_push_to_talk">${optionsHtml(options, hk.code_push_to_talk || defaults.code_push_to_talk)}</select>`) +
+      settingRow('Code toggle hotkey', 'Press once to start or stop code mode', `<select id="hk-code_toggle">${optionsHtml(options, hk.code_toggle || defaults.code_toggle)}</select>`) +
       settingRow('Clarify hotkey', 'Polish selected text or clipboard', `<select id="hk-clarify">${optionsHtml(options, hk.clarify || defaults.clarify)}</select>`) +
       settingRow('Learn correction hotkey', 'Select corrected text after dictation', `<select id="hk-learn_correction">${optionsHtml(options, hk.learn_correction || defaults.learn_correction)}</select>`) +
       settingRow('Logging', 'Write diagnostic logs to disk', toggleHtml('set-logging', cfg.logging)) +
@@ -888,13 +919,14 @@ function wireSettingControls() {
     applyTheme(e.target.value);
     saveSetting('theme', e.target.value);
   });
+  $('#set-code_language').addEventListener('change', (e) => saveSetting('code_language', e.target.value || 'auto'));
 
   const threshold = $('#set-word_count_threshold');
   threshold.addEventListener('change', () => {
     saveSetting('word_count_threshold', parseInt(threshold.value, 10) || 100);
   });
 
-  ['push_to_talk', 'toggle', 'clarify', 'learn_correction'].forEach((k) => {
+  ['push_to_talk', 'toggle', 'code_push_to_talk', 'code_toggle', 'clarify', 'learn_correction'].forEach((k) => {
     const el = $('#hk-' + k);
     el.addEventListener('change', saveHotkeys);
   });
@@ -919,6 +951,8 @@ async function saveHotkeys() {
   const hotkeys = {
     push_to_talk: $('#hk-push_to_talk').value.trim(),
     toggle: $('#hk-toggle').value.trim(),
+    code_push_to_talk: $('#hk-code_push_to_talk').value.trim(),
+    code_toggle: $('#hk-code_toggle').value.trim(),
     clarify: $('#hk-clarify').value.trim(),
     learn_correction: $('#hk-learn_correction').value.trim()
   };

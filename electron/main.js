@@ -49,6 +49,7 @@ let macHotkeyError = '';
 let macHotkeyLastConfig = null;
 let macHotkeyPermissionTimer = null;
 let macGlobalShortcutAccelerators = [];
+let recordingMode = 'dictation';
 
 const DEV = !!process.env.AFK_DEV;
 const PROMPT_ACCESSIBILITY = process.argv.includes('--prompt-accessibility');
@@ -221,8 +222,9 @@ function callBackendForHotkey(method, params = {}, timeoutMs) {
   });
 }
 
-function startRecordingFromHotkey() {
+function startRecordingFromHotkey(mode = 'dictation') {
   if (recordingActive || finishingRecording) return;
+  recordingMode = mode;
   callBackendForHotkey('start_recording', {}).then((result) => {
     if (result && result.recording) {
       recordingActive = true;
@@ -234,14 +236,34 @@ function startRecordingFromHotkey() {
 function finishRecordingFromHotkey() {
   if (!recordingActive || finishingRecording) return;
   finishingRecording = true;
-  callBackendForHotkey('finish_recording', {}, 10 * 60 * 1000).finally(() => {
+  const method = recordingMode === 'code' ? 'finish_code_recording' : 'finish_recording';
+  callBackendForHotkey(method, {}, 10 * 60 * 1000).finally(() => {
     finishingRecording = false;
+    recordingMode = 'dictation';
   });
 }
 
 function toggleRecordingFromHotkey() {
   if (recordingActive) finishRecordingFromHotkey();
   else startRecordingFromHotkey();
+}
+
+function startCodeRecordingFromHotkey() {
+  startRecordingFromHotkey('code');
+}
+
+function finishCodeRecordingFromHotkey() {
+  if (recordingMode !== 'code') recordingMode = 'code';
+  finishRecordingFromHotkey();
+}
+
+function toggleCodeRecordingFromHotkey() {
+  if (recordingActive) {
+    if (recordingMode !== 'code') return;
+    finishCodeRecordingFromHotkey();
+  } else {
+    startCodeRecordingFromHotkey();
+  }
 }
 
 function comboToAccelerator(combo) {
@@ -366,6 +388,9 @@ function configureMacHotkeys(hotkeys) {
         pttStart: startRecordingFromHotkey,
         pttStop: finishRecordingFromHotkey,
         toggle: toggleRecordingFromHotkey,
+        codePttStart: startCodeRecordingFromHotkey,
+        codePttStop: finishCodeRecordingFromHotkey,
+        codeToggle: toggleCodeRecordingFromHotkey,
         clarify: () => callBackendForHotkey('hotkey_clarify', {}, 10 * 60 * 1000),
         learnCorrection: () => callBackendForHotkey('hotkey_learn_correction', {}, 10 * 60 * 1000),
         cancel: () => callBackendForHotkey('hotkey_cancel', {})
@@ -377,6 +402,8 @@ function configureMacHotkeys(hotkeys) {
   macHotkeys.configure({
     push_to_talk: (hotkeys && hotkeys.push_to_talk) || 'Option',
     toggle: (hotkeys && hotkeys.toggle) || 'Option+Space',
+    code_push_to_talk: (hotkeys && hotkeys.code_push_to_talk) || 'Option+Shift+Space',
+    code_toggle: (hotkeys && hotkeys.code_toggle) || 'Cmd+Option+Space',
     clarify: '',
     learn_correction: ''
   });
@@ -416,6 +443,11 @@ function updateTrayMenu() {
       label: recordingActive ? 'Stop transcription' : 'Start transcription',
       enabled: backendReadyForHotkeys() && !finishingRecording,
       click: () => toggleRecordingFromHotkey()
+    },
+    {
+      label: recordingActive && recordingMode === 'code' ? 'Stop code transcription' : 'Start code transcription',
+      enabled: backendReadyForHotkeys() && !finishingRecording && (!recordingActive || recordingMode === 'code'),
+      click: () => toggleCodeRecordingFromHotkey()
     },
     { type: 'separator' },
     {
@@ -484,7 +516,7 @@ function startBackend() {
     if (event === 'recording_started') {
       recordingActive = true;
       updateTrayMenu();
-      setOverlayState('recording', { label: 'Listening' });
+      setOverlayState('recording', { label: recordingMode === 'code' ? 'Listening for code' : 'Listening' });
     } else if (event === 'recording_stopped') {
       recordingActive = false;
       updateTrayMenu();
@@ -506,6 +538,11 @@ function startBackend() {
     } else if (event === 'copied') {
       setOverlayState('done', { label: 'Copied to clipboard' });
       hideOverlaySoon(1200);
+    } else if (event === 'code_format_started') {
+      setOverlayState('clarifying', { label: 'Formatting code', sub: 'Converting spoken syntax' });
+    } else if (event === 'code_formatted') {
+      setOverlayState('done', { label: 'Code ready' });
+      hideOverlaySoon(1200);
     } else if (event === 'clarify_started') {
       setOverlayState('clarifying', { label: 'Clarifying', sub: 'Polishing selected text locally' });
     } else if (event === 'clarify_unavailable') {
@@ -517,6 +554,7 @@ function startBackend() {
     } else if (event === 'cancelled') {
       recordingActive = false;
       finishingRecording = false;
+      recordingMode = 'dictation';
       updateTrayMenu();
       setOverlayState('done', { label: 'Cancelled' });
       hideOverlaySoon(900);
@@ -536,9 +574,11 @@ function registerIpc() {
       'load_asr',
       'stop_recording',
       'finish_recording',
+      'finish_code_recording',
       'finish_training_sample',
       'finish_calibration',
       'transcribe',
+      'format_code_text',
       'clarify'
     ]);
     const result = await bridge.call(method, params || {}, longCalls.has(method) ? 10 * 60 * 1000 : undefined);

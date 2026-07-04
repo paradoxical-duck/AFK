@@ -76,6 +76,8 @@ class MacHotkeyManager {
     this.bindings = {
       push_to_talk: parseCombo(getHotkey('push_to_talk', 'Option')),
       toggle: parseCombo(getHotkey('toggle', 'Option+Space')),
+      code_push_to_talk: parseCombo(getHotkey('code_push_to_talk', 'Option+Shift+Space')),
+      code_toggle: parseCombo(getHotkey('code_toggle', 'Cmd+Option+Space')),
       clarify: parseCombo(getHotkey('clarify', 'Cmd+Option+K')),
       learn_correction: parseCombo(getHotkey('learn_correction', 'Cmd+Option+L'))
     };
@@ -144,6 +146,8 @@ class MacHotkeyManager {
     if (alreadyDown) return;
     for (const [action, callbackName] of [
       ['toggle', 'toggle'],
+      ['code_push_to_talk', 'codePttStart'],
+      ['code_toggle', 'codeToggle'],
       ['clarify', 'clarify'],
       ['learn_correction', 'learnCorrection']
     ]) {
@@ -161,6 +165,7 @@ class MacHotkeyManager {
 
     if (isModifierKey(keycode)) {
       this._log('debug', `mac hotkey modifier up: ${modNameForKey(keycode)}`);
+      if (this._comboNoLongerHeld('code_push_to_talk')) this._finishCodePtt();
       if (this.pttActive && !this._modifierOnlyPttStillHeld()) {
         this.pttActive = false;
         this._fire('pttStop');
@@ -170,6 +175,7 @@ class MacHotkeyManager {
       return;
     }
 
+    if (this._comboNoLongerHeld('code_push_to_talk')) this._finishCodePtt();
     for (const [action, binding] of Object.entries(this.bindings)) {
       if (binding && binding.main === keycode) this.edgeFiredFor.delete(action);
     }
@@ -186,6 +192,20 @@ class MacHotkeyManager {
 
   _matches(binding, keycode) {
     return !!binding && binding.main === keycode && sameMods(binding.mods, this._currentMods());
+  }
+
+  _comboStillHeld(action) {
+    const binding = this.bindings[action];
+    return !!binding && binding.main !== null && this.downKeys.has(binding.main) && sameMods(binding.mods, this._currentMods());
+  }
+
+  _comboNoLongerHeld(action) {
+    return this.edgeFiredFor.has(action) && !this._comboStillHeld(action);
+  }
+
+  _finishCodePtt() {
+    this.edgeFiredFor.delete('code_push_to_talk');
+    this._fire('codePttStop');
   }
 
   _modifierOnlyPttStillHeld() {

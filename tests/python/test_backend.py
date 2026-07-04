@@ -46,6 +46,9 @@ class TestDispatch(unittest.TestCase):
         self.assertTrue(before["auto_capitalization"])
         self.assertTrue(before["auto_punctuation"])
         self.assertTrue(before["training_corrections"])
+        self.assertIn("code_push_to_talk", before["hotkeys"])
+        self.assertIn("code_toggle", before["hotkeys"])
+        self.assertEqual(before["code_language"], "auto")
         updated = self.app.dispatch("update_settings", {"patch": {"word_count_threshold": 42}})
         self.assertEqual(updated["word_count_threshold"], 42)
         # nested merge preserves siblings
@@ -60,6 +63,16 @@ class TestDispatch(unittest.TestCase):
         methods = self.app.dispatch("list_methods", {})
         self.assertIn("start_training_sample", methods)
         self.assertIn("finish_training_sample", methods)
+        self.assertIn("finish_code_recording", methods)
+        self.assertIn("format_code_text", methods)
+
+    def test_format_code_text_method(self):
+        result = self.app.dispatch(
+            "format_code_text",
+            {"text": "function greet open paren name close paren open curly", "language": "javascript"},
+        )
+        self.assertEqual(result["text"], "function greet(name) {")
+        self.assertEqual(result["language"], "javascript")
 
     def test_transcript_formatting_helper(self):
         from afk_backend.app import _format_transcript_text

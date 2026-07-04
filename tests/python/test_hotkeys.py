@@ -23,6 +23,7 @@ SPACE = keyboard.Key.space
 C = keyboard.KeyCode(vk=67)  # 'C'
 K = keyboard.KeyCode(vk=75)  # 'K'
 L = keyboard.KeyCode(vk=76)  # 'L'
+J = keyboard.KeyCode(vk=74)  # 'J'
 
 
 class TestParse(unittest.TestCase):
@@ -50,6 +51,9 @@ class TestManager(unittest.TestCase):
                 "ptt_start": lambda: self.events.append("ptt_start"),
                 "ptt_stop": lambda: self.events.append("ptt_stop"),
                 "toggle": lambda: self.events.append("toggle"),
+                "code_ptt_start": lambda: self.events.append("code_ptt_start"),
+                "code_ptt_stop": lambda: self.events.append("code_ptt_stop"),
+                "code_toggle": lambda: self.events.append("code_toggle"),
                 "clarify": lambda: self.events.append("clarify"),
                 "learn_correction": lambda: self.events.append("learn_correction"),
                 "cancel": lambda: self.events.append("cancel"),
@@ -59,6 +63,8 @@ class TestManager(unittest.TestCase):
             {
                 "push_to_talk": "ctrl+space",
                 "toggle": "ctrl+shift+space",
+                "code_push_to_talk": "ctrl+alt+j",
+                "code_toggle": "ctrl+shift+j",
                 "clarify": "ctrl+alt+k",
                 "learn_correction": "ctrl+alt+l",
             }
@@ -95,6 +101,26 @@ class TestManager(unittest.TestCase):
         self.mgr._on_press(SPACE)
         self.mgr._on_press(SPACE)  # auto-repeat shouldn't re-fire
         self.assertEqual(self.events.count("toggle"), 1)
+
+    def test_code_push_to_talk_hold(self):
+        self.mgr._on_press(CTRL)
+        self.mgr._on_press(ALT)
+        self.mgr._on_press(J)
+        self.assertEqual(self.events, ["code_ptt_start"])
+        self.mgr._on_release(J)
+        self.assertEqual(self.events, ["code_ptt_start", "code_ptt_stop"])
+        self.mgr._on_release(ALT)
+        self.mgr._on_release(CTRL)
+
+    def test_code_toggle_fires_once(self):
+        self.mgr._on_press(CTRL)
+        self.mgr._on_press(SHIFT)
+        self.mgr._on_press(J)
+        self.mgr._on_press(J)
+        self.assertEqual(self.events, ["code_toggle"])
+        self.mgr._on_release(J)
+        self.mgr._on_release(SHIFT)
+        self.mgr._on_release(CTRL)
 
     def test_clarify(self):
         self.mgr._on_press(CTRL)
@@ -177,6 +203,8 @@ class TestManager(unittest.TestCase):
                 {
                     "push_to_talk": "option",
                     "toggle": "option+space",
+                    "code_push_to_talk": "option+shift+space",
+                    "code_toggle": "cmd+option+space",
                     "clarify": "cmd+option+k",
                 }
             )
@@ -191,6 +219,25 @@ class TestManager(unittest.TestCase):
             self.mgr._on_press(keyboard.KeyCode(vk=58))  # Option
             self.mgr._on_press(keyboard.KeyCode(vk=40))  # K
             self.assertEqual(self.events, ["clarify"])
+
+            self.events.clear()
+            self.mgr._on_release(keyboard.KeyCode(vk=40))
+            self.mgr._on_release(keyboard.KeyCode(vk=58))
+            self.mgr._on_release(keyboard.KeyCode(vk=55))
+            self.mgr._on_press(keyboard.KeyCode(vk=58))  # Option
+            self.mgr._on_press(keyboard.KeyCode(vk=60))  # Shift
+            self.mgr._on_press(keyboard.KeyCode(vk=49))  # Space
+            self.assertEqual(self.events, ["code_ptt_start"])
+            self.mgr._on_release(keyboard.KeyCode(vk=49))
+            self.assertEqual(self.events, ["code_ptt_start", "code_ptt_stop"])
+
+            self.events.clear()
+            self.mgr._on_release(keyboard.KeyCode(vk=60))
+            self.mgr._on_release(keyboard.KeyCode(vk=58))
+            self.mgr._on_press(keyboard.KeyCode(vk=55))  # Command
+            self.mgr._on_press(keyboard.KeyCode(vk=58))  # Option
+            self.mgr._on_press(keyboard.KeyCode(vk=49))  # Space
+            self.assertEqual(self.events, ["code_toggle"])
         finally:
             hotkey_manager.sys.platform = original
 
