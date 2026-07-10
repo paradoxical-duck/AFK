@@ -99,6 +99,43 @@ function runTool(command, args) {
   execFileSync(command, args, { stdio: 'inherit' });
 }
 
+function appResourcesDir(context) {
+  const appName = context.packager.appInfo.productFilename;
+  return context.electronPlatformName === 'darwin'
+    ? path.join(context.appOutDir, `${appName}.app`, 'Contents', 'Resources')
+    : path.join(context.appOutDir, 'resources');
+}
+
+function copyBundledModels(context) {
+  if (process.env.AFK_BUNDLE_MODELS !== '1') return;
+
+  const sourceRoot = process.env.AFK_BUNDLE_MODELS_DIR
+    || path.join(os.homedir(), 'Library', 'Application Support', 'AFK', 'models');
+  if (!fs.existsSync(sourceRoot)) {
+    throw new Error(`AFK_BUNDLE_MODELS=1 but model directory does not exist: ${sourceRoot}`);
+  }
+
+  const targetRoot = path.join(appResourcesDir(context), 'models');
+  fs.rmSync(targetRoot, { recursive: true, force: true });
+  fs.mkdirSync(targetRoot, { recursive: true });
+
+  let copiedAny = false;
+  for (const name of ['parakeet-v3', 'clarify']) {
+    const source = path.join(sourceRoot, name);
+    if (!fs.existsSync(source)) {
+      console.warn(`after-pack: bundled models requested but ${source} is missing`);
+      continue;
+    }
+    fs.cpSync(source, path.join(targetRoot, name), { recursive: true, dereference: false });
+    copiedAny = true;
+    console.log(`after-pack: bundled model directory ${source} -> ${path.join(targetRoot, name)}`);
+  }
+
+  if (!copiedAny) {
+    throw new Error(`AFK_BUNDLE_MODELS=1 but no supported model directories were found in ${sourceRoot}`);
+  }
+}
+
 /**
  * Rewrite pyvenv.cfg so the bundled venv is fully relocatable.
  *
@@ -194,6 +231,7 @@ function bundleMacPythonFramework(context) {
 
 exports.default = async function afterPack(context) {
   bundleMacPythonFramework(context);
+  copyBundledModels(context);
 
   // Always fix pyvenv.cfg first; the backend will fail to start on any
   // machine that doesn't have the developer's Python installation otherwise.

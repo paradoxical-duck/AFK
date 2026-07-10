@@ -122,7 +122,7 @@ function createWindow() {
 function positionOverlay() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const { x, y, width, height } = display.workArea;
+  const { x, y, width, height } = display.bounds;
   const [overlayWidth, overlayHeight] = overlayWindow.getSize();
   overlayWindow.setPosition(
     Math.round(x + (width - overlayWidth) / 2),
@@ -155,6 +155,7 @@ function createOverlayWindow() {
     height: 78,
     show: false,
     frame: false,
+    ...(process.platform === 'darwin' ? { type: 'panel', roundedCorners: false } : {}),
     transparent: true,
     resizable: false,
     movable: false,

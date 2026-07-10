@@ -34,7 +34,7 @@ rebuild.
 | Python runtime + backend deps (sounddevice, onnxruntime, etc.) | ✅ | `resources/python/runtime/` |
 | macOS Python.framework | ✅ | `Contents/Frameworks/Python.framework/` |
 | Optional NeMo/PyTorch stack | ❌ provisioned | install only when using `.nemo` |
-| Model weights (Parakeet, Gemma) | ❌ downloaded | user-data `models/` |
+| Model weights (Parakeet, Gemma) | optional | `resources/models/` when `AFK_BUNDLE_MODELS=1`, otherwise user-data `models/` |
 
 The icons are generated from a script (no binary blobs in git):
 
@@ -63,6 +63,17 @@ ASR or clarify files should show as missing/not loaded in model status, not as a
 permanent "Starting backend" state. The Parakeet ONNX ASR files are downloaded
 on first use when internet is available; Gemma clarify models are optional and
 must be downloaded or copied into `models/clarify/`.
+
+For a shareable offline macOS installer, build with:
+
+```bash
+AFK_BUNDLE_MODELS=1 npm run dist:mac
+```
+
+By default this copies `~/Library/Application Support/AFK/models/parakeet-v3`
+and `~/Library/Application Support/AFK/models/clarify` into
+`AFK.app/Contents/Resources/models`. Set `AFK_BUNDLE_MODELS_DIR` to use a
+different source model directory.
 
 ### Path resolution (dev vs. packaged)
 
