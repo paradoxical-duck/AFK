@@ -132,11 +132,10 @@ npm run dist                                         # platform installer in ins
 npm run dist:mac                                     # Apple Silicon DMG on macOS
 ```
 
-The installer bundles the Electron app, the Python backend source, and the
-AVX2 `llama-server` binary. Model weights and the Python ML dependencies are
-provisioned separately (they total ~9 GB) — see
-[docs/PACKAGING.md](docs/PACKAGING.md) for the full bundling strategy, including
-how to produce a fully self-contained installer.
+The installer bundles the Electron app, the Python backend/runtime, and the
+platform `llama-server` binary. Model weights are provisioned separately because
+they total several GB — see [docs/PACKAGING.md](docs/PACKAGING.md) for the full
+bundling strategy and the extra steps for a fully offline installer.
 
 ## Hotkeys (defaults — all remappable in Settings)
 

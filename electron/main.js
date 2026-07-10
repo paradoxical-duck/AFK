@@ -131,6 +131,21 @@ function positionOverlay() {
   );
 }
 
+function keepOverlayVisibleAboveFullscreen() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  try {
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+    if (process.platform === 'darwin') {
+      overlayWindow.setFullScreenable(false);
+      overlayWindow.setHiddenInMissionControl(true);
+      overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      overlayWindow.moveTop();
+    }
+  } catch (err) {
+    logger.warn(`overlay z-order refresh failed: ${err.message || err}`);
+  }
+}
+
 function createOverlayWindow() {
   if (overlayWindow && !overlayWindow.isDestroyed()) return;
 
@@ -150,6 +165,7 @@ function createOverlayWindow() {
     skipTaskbar: true,
     hasShadow: false,
     alwaysOnTop: true,
+    fullscreenable: false,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -160,7 +176,7 @@ function createOverlayWindow() {
   });
 
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  keepOverlayVisibleAboveFullscreen();
   overlayWindow.webContents.on('did-finish-load', () => {
     overlayReady = true;
     if (pendingOverlayPayload) {
@@ -177,6 +193,7 @@ function createOverlayWindow() {
     overlayReady = false;
   });
   positionOverlay();
+  keepOverlayVisibleAboveFullscreen();
 }
 
 function setOverlayState(state, payload = {}) {
@@ -189,12 +206,14 @@ function setOverlayState(state, payload = {}) {
     overlayHideTimer = null;
   }
   positionOverlay();
+  keepOverlayVisibleAboveFullscreen();
   pendingOverlayPayload = overlayPayload;
   if (state === 'hidden') {
     overlayWindow.hide();
     return;
   }
   overlayWindow.showInactive();
+  keepOverlayVisibleAboveFullscreen();
   if (overlayReady) {
     overlayWindow.webContents.send('overlay:state', overlayPayload);
   }
