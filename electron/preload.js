@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('afk', {
   app: {
     getInfo: () => ipcRenderer.invoke('app:getInfo'),
     quit: () => ipcRenderer.invoke('app:quit'),
+    restartHotkeys: () => ipcRenderer.invoke('hotkeys:restart'),
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url)
   },
 

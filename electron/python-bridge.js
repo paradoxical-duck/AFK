@@ -168,14 +168,36 @@ class PythonBridge extends EventEmitter {
 
   stop() {
     this._stopped = true;
-    if (!this.proc) return;
-    try {
-      this.call('shutdown', {}, 2000).catch(() => {});
-    } catch (_) { /* ignore */ }
+    this._restarting = false;
+    if (!this.proc) return Promise.resolve();
     const proc = this.proc;
-    setTimeout(() => {
-      if (proc && !proc.killed) proc.kill();
-    }, 1500);
+    const isRunning = () => proc.exitCode === null && proc.signalCode === null;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(termTimer);
+        clearTimeout(killTimer);
+        clearTimeout(deadlineTimer);
+        resolve();
+      };
+      const termTimer = setTimeout(() => {
+        if (isRunning()) proc.kill('SIGTERM');
+      }, 700);
+      const killTimer = setTimeout(() => {
+        if (isRunning()) proc.kill('SIGKILL');
+      }, 1900);
+      const deadlineTimer = setTimeout(finish, 2400);
+
+      proc.once('exit', finish);
+      try {
+        this.call('shutdown', {}, 600).catch(() => {});
+      } catch (_) {
+        if (isRunning()) proc.kill('SIGTERM');
+      }
+    });
   }
 
   _stopStaleBackends(entry) {

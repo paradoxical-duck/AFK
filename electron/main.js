@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, systemPreferences, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, screen, systemPreferences, globalShortcut, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -8,6 +8,7 @@ const logger = require('./logger');
 const paths = require('./paths');
 const { PythonBridge } = require('./python-bridge');
 const { MacHotkeyManager } = require('./mac-hotkeys');
+const { RecordingState } = require('./recording-state');
 
 let AutoLaunch = null;
 try { AutoLaunch = require('auto-launch'); } catch (_) { /* optional */ }
@@ -43,13 +44,15 @@ let overlayHideTimer = null;
 let overlayReady = false;
 let pendingOverlayPayload = null;
 let macHotkeys = null;
-let recordingActive = false;
-let finishingRecording = false;
+const recordingState = new RecordingState();
 let macHotkeyError = '';
 let macHotkeyLastConfig = null;
 let macHotkeyPermissionTimer = null;
+let macHotkeyRestartTimer = null;
+let macHotkeyWatchdogTimer = null;
+let macHotkeyWatchdogTick = Date.now();
 let macGlobalShortcutAccelerators = [];
-let recordingMode = 'dictation';
+let quitCleanupStarted = false;
 
 const DEV = !!process.env.AFK_DEV;
 const PROMPT_ACCESSIBILITY = process.argv.includes('--prompt-accessibility');
@@ -74,12 +77,12 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 980,
-    height: 680,
+    width: 1120,
+    height: 760,
     minWidth: 820,
     minHeight: 560,
     show: false,
-    backgroundColor: '#0f1115',
+    backgroundColor: '#0d0f0f',
     title: 'AFK',
     icon: APP_ICON_PATH,
     autoHideMenuBar: true,
@@ -91,12 +94,20 @@ function createWindow() {
     }
   });
 
+  const launchMinimized = process.argv.includes('--minimized') || process.argv.includes('--hidden');
   mainWindow.loadFile(path.join(__dirname, '..', 'ui', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
-    const launchMinimized = process.argv.includes('--minimized');
     if (!launchMinimized) mainWindow.show();
   });
+
+  // A renderer recovering from sleep or cache corruption may miss
+  // ready-to-show. Do not leave an explicitly opened window invisible.
+  setTimeout(() => {
+    if (!launchMinimized && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 1200);
 
   // Close to tray instead of quitting.
   mainWindow.on('close', (e) => {
@@ -243,28 +254,32 @@ function callBackendForHotkey(method, params = {}, timeoutMs) {
 }
 
 function startRecordingFromHotkey(mode = 'dictation') {
-  if (recordingActive || finishingRecording) return;
-  recordingMode = mode;
+  if (!recordingState.begin(mode)) return;
   callBackendForHotkey('start_recording', {}).then((result) => {
-    if (result && result.recording) {
-      recordingActive = true;
+    if (result && result.recording && recordingState.starting) {
+      const shouldFinish = recordingState.markStarted();
+      updateTrayMenu();
+      if (shouldFinish) finishRecordingFromHotkey();
+    } else if ((!result || !result.recording) && recordingState.starting) {
+      recordingState.markStartFailed();
       updateTrayMenu();
     }
   });
 }
 
 function finishRecordingFromHotkey() {
-  if (!recordingActive || finishingRecording) return;
-  finishingRecording = true;
-  const method = recordingMode === 'code' ? 'finish_code_recording' : 'finish_recording';
+  const action = recordingState.requestFinish();
+  if (action !== 'finish') return;
+  updateTrayMenu();
+  const method = recordingState.mode === 'code' ? 'finish_code_recording' : 'finish_recording';
   callBackendForHotkey(method, {}, 10 * 60 * 1000).finally(() => {
-    finishingRecording = false;
-    recordingMode = 'dictation';
+    recordingState.markFinished();
+    updateTrayMenu();
   });
 }
 
 function toggleRecordingFromHotkey() {
-  if (recordingActive) finishRecordingFromHotkey();
+  if (recordingState.active || recordingState.starting) finishRecordingFromHotkey();
   else startRecordingFromHotkey();
 }
 
@@ -273,13 +288,13 @@ function startCodeRecordingFromHotkey() {
 }
 
 function finishCodeRecordingFromHotkey() {
-  if (recordingMode !== 'code') recordingMode = 'code';
+  if (recordingState.mode !== 'code') return;
   finishRecordingFromHotkey();
 }
 
 function toggleCodeRecordingFromHotkey() {
-  if (recordingActive) {
-    if (recordingMode !== 'code') return;
+  if (recordingState.active || recordingState.starting) {
+    if (recordingState.mode !== 'code') return;
     finishCodeRecordingFromHotkey();
   } else {
     startCodeRecordingFromHotkey();
@@ -354,8 +369,10 @@ function macHotkeyStatus(base = {}) {
   if (process.platform !== 'darwin') return base;
   const trusted = macAccessibilityTrusted(false);
   const listening = !!(macHotkeys && macHotkeys.isListening && macHotkeys.isListening());
+  const listenerStatus = macHotkeys && macHotkeys.status ? macHotkeys.status() : {};
   return {
     ...base,
+    ...listenerStatus,
     available: true,
     listening,
     runtime: 'electron',
@@ -369,6 +386,12 @@ function clearMacHotkeyPermissionTimer() {
   if (!macHotkeyPermissionTimer) return;
   clearInterval(macHotkeyPermissionTimer);
   macHotkeyPermissionTimer = null;
+}
+
+function clearMacHotkeyRestartTimer() {
+  if (!macHotkeyRestartTimer) return;
+  clearTimeout(macHotkeyRestartTimer);
+  macHotkeyRestartTimer = null;
 }
 
 function attemptStartMacHotkeys(logFailure = true) {
@@ -439,6 +462,62 @@ function configureMacHotkeys(hotkeys) {
   if (!attemptStartMacHotkeys()) waitForMacHotkeyPermission();
 }
 
+function pauseMacHotkeys(reason) {
+  if (process.platform !== 'darwin') return;
+  clearMacHotkeyRestartTimer();
+  clearMacHotkeyPermissionTimer();
+  clearMacGlobalShortcuts();
+  if (macHotkeys) macHotkeys.stop();
+  logger.info(`mac hotkeys paused: ${reason}`);
+}
+
+function scheduleMacHotkeyRestart(reason, delayMs = 650) {
+  if (process.platform !== 'darwin' || isQuitting || !macHotkeyLastConfig) return false;
+  pauseMacHotkeys(reason);
+  macHotkeyRestartTimer = setTimeout(() => {
+    macHotkeyRestartTimer = null;
+    if (isQuitting) return;
+    logger.info(`re-arming mac hotkeys: ${reason}`);
+    configureMacHotkeys(macHotkeyLastConfig);
+    updateTrayMenu();
+  }, delayMs);
+  return true;
+}
+
+function cancelRecordingForSystemTransition(reason) {
+  if (!recordingState.busy) return;
+  logger.warn(`cancelling active recording for ${reason}`);
+  callBackendForHotkey('hotkey_cancel', {});
+  recordingState.reset();
+  updateTrayMenu();
+  setOverlayState('hidden');
+}
+
+function setupMacHotkeyRecovery() {
+  if (process.platform !== 'darwin') return;
+
+  const pauseFor = (reason) => {
+    cancelRecordingForSystemTransition(reason);
+    pauseMacHotkeys(reason);
+  };
+  powerMonitor.on('suspend', () => pauseFor('system sleep'));
+  powerMonitor.on('lock-screen', () => pauseFor('screen lock'));
+  powerMonitor.on('resume', () => scheduleMacHotkeyRestart('system wake'));
+  powerMonitor.on('unlock-screen', () => scheduleMacHotkeyRestart('screen unlock'));
+
+  macHotkeyWatchdogTick = Date.now();
+  macHotkeyWatchdogTimer = setInterval(() => {
+    const now = Date.now();
+    const elapsed = now - macHotkeyWatchdogTick;
+    macHotkeyWatchdogTick = now;
+    if (elapsed > 75000) {
+      scheduleMacHotkeyRestart(`watchdog clock gap (${Math.round(elapsed / 1000)}s)`);
+    } else if (macHotkeys && !macHotkeys.isListening()) {
+      scheduleMacHotkeyRestart('listener health check');
+    }
+  }, 30000);
+}
+
 function createTrayImage() {
   try {
     const primary = process.platform === 'darwin' ? TRAY_TEMPLATE_ICON_PATH : TRAY_ICON_PATH;
@@ -460,13 +539,13 @@ function updateTrayMenu() {
   const menu = Menu.buildFromTemplate([
     { label: 'Open AFK', click: () => createWindow() },
     {
-      label: recordingActive ? 'Stop transcription' : 'Start transcription',
-      enabled: backendReadyForHotkeys() && !finishingRecording,
+      label: recordingState.active || recordingState.starting ? 'Stop transcription' : 'Start transcription',
+      enabled: backendReadyForHotkeys() && !recordingState.finishing,
       click: () => toggleRecordingFromHotkey()
     },
     {
-      label: recordingActive && recordingMode === 'code' ? 'Stop code transcription' : 'Start code transcription',
-      enabled: backendReadyForHotkeys() && !finishingRecording && (!recordingActive || recordingMode === 'code'),
+      label: (recordingState.active || recordingState.starting) && recordingState.mode === 'code' ? 'Stop code transcription' : 'Start code transcription',
+      enabled: backendReadyForHotkeys() && !recordingState.finishing && (!recordingState.busy || recordingState.mode === 'code'),
       click: () => toggleCodeRecordingFromHotkey()
     },
     { type: 'separator' },
@@ -475,13 +554,15 @@ function updateTrayMenu() {
       enabled: false,
       id: 'status'
     },
+    ...(process.platform === 'darwin' ? [{
+      label: 'Restart shortcuts',
+      enabled: !!macHotkeyLastConfig,
+      click: () => scheduleMacHotkeyRestart('menu command', 150)
+    }] : []),
     { type: 'separator' },
     {
       label: 'Quit AFK',
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      }
+      click: () => requestQuit()
     }
   ]);
   tray.setContextMenu(menu);
@@ -526,6 +607,8 @@ function startBackend() {
   });
 
   bridge.on('exit', () => {
+    recordingState.reset();
+    updateTrayMenu();
     broadcast('backend:status', { ready: false });
     setOverlayState('hidden');
   });
@@ -534,15 +617,16 @@ function startBackend() {
   bridge.on('event', (event, data) => {
     broadcast('backend:event', { event, data });
     if (event === 'recording_started') {
-      recordingActive = true;
+      const shouldFinish = recordingState.markStarted();
       updateTrayMenu();
-      setOverlayState('recording', { label: recordingMode === 'code' ? 'Listening for code' : 'Listening' });
+      setOverlayState('recording', { label: recordingState.mode === 'code' ? 'Listening for code' : 'Listening' });
+      if (shouldFinish) setImmediate(finishRecordingFromHotkey);
     } else if (event === 'recording_stopped') {
-      recordingActive = false;
+      recordingState.markRecordingStopped();
       updateTrayMenu();
       setOverlayState('processing', { label: 'Transcribing' });
     } else if (event === 'transcription') {
-      finishingRecording = false;
+      recordingState.markFinished();
       updateTrayMenu();
       const text = data && data.text ? String(data.text) : '';
       const reason = data && data.reason;
@@ -572,9 +656,7 @@ function startBackend() {
       setOverlayState('done', { label: 'Corrected' });
       hideOverlaySoon(1200);
     } else if (event === 'cancelled') {
-      recordingActive = false;
-      finishingRecording = false;
-      recordingMode = 'dictation';
+      recordingState.reset();
       updateTrayMenu();
       setOverlayState('done', { label: 'Cancelled' });
       hideOverlaySoon(900);
@@ -619,9 +701,11 @@ function registerIpc() {
   ipcMain.handle('window:minimize', () => mainWindow && mainWindow.minimize());
   ipcMain.handle('window:hide', () => mainWindow && mainWindow.hide());
   ipcMain.handle('app:quit', () => {
-    isQuitting = true;
-    app.quit();
+    requestQuit();
+    return true;
   });
+
+  ipcMain.handle('hotkeys:restart', () => ({ scheduled: scheduleMacHotkeyRestart('app command', 150) }));
 
   ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
 }
@@ -644,6 +728,7 @@ app.whenReady().then(() => {
   createTray();
   startBackend();
   createWindow();
+  setupMacHotkeyRecovery();
 
   screen.on('display-metrics-changed', positionOverlay);
   screen.on('display-added', positionOverlay);
@@ -659,12 +744,44 @@ app.on('window-all-closed', (e) => {
   // do not quit — AFK lives in the tray
 });
 
-app.on('before-quit', () => {
+async function shutdownAndExit() {
+  if (quitCleanupStarted) return;
+  quitCleanupStarted = true;
   isQuitting = true;
+  logger.info('AFK shutdown requested');
+  clearMacHotkeyRestartTimer();
   clearMacHotkeyPermissionTimer();
+  if (macHotkeyWatchdogTimer) {
+    clearInterval(macHotkeyWatchdogTimer);
+    macHotkeyWatchdogTimer = null;
+  }
   clearMacGlobalShortcuts();
   if (macHotkeys) macHotkeys.stop();
-  if (bridge) bridge.stop();
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+  try {
+    if (bridge) await bridge.stop();
+  } catch (err) {
+    logger.warn(`backend shutdown failed: ${err.message || err}`);
+  }
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.destroy();
+  }
+  logger.info('AFK shutdown complete');
+  app.exit(0);
+}
+
+function requestQuit() {
+  if (quitCleanupStarted) return;
+  void shutdownAndExit();
+}
+
+app.on('before-quit', (event) => {
+  if (quitCleanupStarted) return;
+  event.preventDefault();
+  requestQuit();
 });
 
 process.on('uncaughtException', (err) => {

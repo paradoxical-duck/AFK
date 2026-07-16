@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
   <title>AFK</title>
@@ -11,35 +12,43 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <img class="brand-mark" src="../assets/icon.png" alt="">
+        <img class="brand-mark" src="../assets/icon.png" alt="" />
         <div class="brand-text">
           <span class="brand-name">AFK</span>
-          <span class="brand-sub">local dictation</span>
+          <span class="brand-sub">Voice, locally.</span>
         </div>
       </div>
 
-      <nav class="nav">
-        <button class="nav-item active" data-page="home" aria-label="Home">
-          <span class="nav-icon home-icon">&#8962;</span><span>Home</span>
+      <nav class="nav" aria-label="AFK views">
+        <button class="nav-item active" data-page="home" title="Dictation">
+          <span class="nav-icon" aria-hidden="true">&#9679;</span><span>Dictation</span>
         </button>
-        <button class="nav-item" data-page="statistics" aria-label="Statistics">
-          <span class="nav-icon">&#9638;</span><span>Statistics</span>
+        <button class="nav-item" data-page="statistics" title="Statistics">
+          <span class="nav-icon" aria-hidden="true">&#9638;</span><span>Statistics</span>
         </button>
-        <button class="nav-item" data-page="train" aria-label="Train">
-          <span class="nav-icon">&#9679;</span><span>Train</span>
+        <button class="nav-item" data-page="train" title="Train">
+          <span class="nav-icon" aria-hidden="true">&#9651;</span><span>Train</span>
         </button>
-        <button class="nav-item" data-page="settings" aria-label="Settings">
-          <span class="nav-icon">&#9881;</span><span>Settings</span>
+        <button class="nav-item" data-page="settings" title="Settings">
+          <span class="nav-icon" aria-hidden="true">&#9881;</span><span>Settings</span>
         </button>
-        <button class="nav-item" data-page="about" aria-label="About">
-          <span class="nav-icon">i</span><span>About</span>
+        <button class="nav-item" data-page="about" title="About">
+          <span class="nav-icon nav-icon-letter" aria-hidden="true">i</span><span>About</span>
         </button>
       </nav>
 
       <div class="sidebar-footer">
         <div class="backend-status" id="backendStatus">
           <span class="dot dot-pending" id="backendDot"></span>
-          <span id="backendLabel">Starting backend...</span>
+          <span id="backendLabel">Starting backend</span>
+        </div>
+        <div class="sidebar-actions">
+          <button class="utility-button" id="restartHotkeysBtn" title="Restart shortcuts">
+            <span aria-hidden="true">&#8635;</span><span>Restart shortcuts</span>
+          </button>
+          <button class="utility-button" id="quitBtn" title="Quit AFK">
+            <span aria-hidden="true">&#10005;</span><span>Quit AFK</span>
+          </button>
         </div>
       </div>
     </aside>
@@ -48,151 +57,121 @@
       <section class="page active" id="page-home">
         <header class="page-head">
           <div>
+            <span class="page-kicker">Local voice console</span>
             <h1>Dictation</h1>
-            <p class="page-sub">Local speech, cleanup, history, and training in one focused console.</p>
           </div>
-          <div class="head-status">
-            <span class="status-pill" id="asrStatus">Model: ...</span>
-            <span class="status-pill" id="clarifyModels">Clarify: ...</span>
+          <div class="head-status" aria-label="Model status">
+            <span class="status-pill" id="asrStatus">Speech: starting</span>
+            <span class="status-pill status-pill-blue" id="clarifyModels">Clarify: starting</span>
           </div>
         </header>
 
-        <div class="home-dashboard">
-          <section class="home-stats" id="homeStats" aria-label="Key statistics">
+        <section class="command-deck" id="commandDeck" aria-label="Dictation controls">
+          <div class="signal-rail" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+
+          <div class="command-main">
+            <div class="record-state">
+              <div class="record-orb" id="recordOrb" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <div class="record-copy">
+                <span class="section-kicker">Voice input</span>
+                <strong class="record-status" id="recordStatus">Ready</strong>
+                <span class="record-timer" id="recordTimer">00:00</span>
+              </div>
+            </div>
+
+            <div class="record-controls">
+              <div class="field-block mic-field">
+                <label for="micSelect">Microphone</label>
+                <select class="mic-select" id="micSelect"><option value="">System default</option></select>
+              </div>
+              <button class="btn btn-primary record-button" id="recordBtn">
+                <span class="record-button-icon" aria-hidden="true">&#9679;</span>
+                <span>Start recording</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="shortcut-strip">
+            <div class="shortcut-health">
+              <span class="dot dot-pending" id="hotkeyHealthDot"></span>
+              <span>Shortcuts</span>
+              <strong id="hotkeyStatus">Starting</strong>
+            </div>
+            <div class="shortcut-pair"><span>Hold</span><kbd id="pttHotkey">Option</kbd></div>
+            <div class="shortcut-pair"><span>Toggle</span><kbd id="toggleHotkey">Option+Space</kbd></div>
+            <button class="btn btn-quiet btn-compact" id="restartHotkeysInlineBtn">Restart</button>
+          </div>
+        </section>
+
+        <section class="transcript-stage" aria-labelledby="transcriptTitle">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Latest output</span>
+              <h2 id="transcriptTitle">Transcript</h2>
+            </div>
+            <div class="section-actions">
+              <button class="btn btn-quiet btn-compact" id="loadAsrBtn">Load speech model</button>
+              <button class="btn btn-quiet btn-compact" id="copyTranscriptBtn">Copy</button>
+            </div>
+          </div>
+          <div class="transcription" id="transcription"><span class="placeholder">No transcript yet.</span></div>
+        </section>
+
+        <section class="dashboard-band" aria-label="Today at a glance">
+          <div class="home-stats" id="homeStats">
             <div class="empty-hint">Statistics will appear after your first dictation.</div>
-          </section>
+          </div>
+          <div class="home-chart" id="homeChart">
+            <div class="empty-hint">Activity will appear after your first dictation.</div>
+          </div>
+        </section>
 
-          <section class="card home-chart" id="homeChart" aria-label="Dictation graph">
-            <div class="empty-hint">Your activity graph will appear after your first dictation.</div>
-          </section>
-
-          <section class="card info-card" aria-label="Current setup">
-            <div class="info-row">
-              <span class="info-label">Microphone</span>
-              <select class="mic-select" id="micSelect"><option value="">System default</option></select>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Active model</span>
-              <span class="info-value" id="activeModel">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Push-to-talk</span>
-              <span class="info-value keycap" id="pttHotkey">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Toggle</span>
-              <span class="info-value keycap" id="toggleHotkey">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Clarify</span>
-              <span class="info-value keycap" id="clarifyHotkey">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Learn</span>
-              <span class="info-value keycap" id="learnHotkey">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Code hold</span>
-              <span class="info-value keycap" id="codeHoldHotkey">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Code toggle</span>
-              <span class="info-value keycap" id="codeToggleHotkey">-</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Hotkeys</span>
-              <span class="info-value" id="hotkeyStatus">-</span>
-            </div>
-          </section>
-
-          <section class="card history-card" aria-labelledby="historyTitle">
-            <div class="card-title" id="historyTitle">
-              <span>Previous transcriptions</span>
-              <button class="btn btn-quiet" id="clearHistoryBtn">Clear history</button>
+        <div class="home-lower">
+          <section class="history-section" aria-labelledby="historyTitle">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">On this Mac</span>
+                <h2 id="historyTitle">Recent dictation</h2>
+              </div>
+              <button class="btn btn-quiet btn-compact" id="clearHistoryBtn">Clear</button>
             </div>
             <div class="history-list" id="historyList">
               <div class="empty-hint">No transcriptions yet.</div>
             </div>
           </section>
+
+          <section class="clarify-section" aria-labelledby="clarifyTitle">
+            <div class="section-head">
+              <div>
+                <span class="section-kicker section-kicker-blue">Local cleanup</span>
+                <h2 id="clarifyTitle">Clarify</h2>
+              </div>
+              <span class="section-meta" id="clarifyMeta"></span>
+            </div>
+            <textarea class="clarify-input" id="clarifyInput" rows="5" placeholder="Text to clarify" spellcheck="true"></textarea>
+            <button class="btn btn-secondary" id="clarifyBtn">Clarify text</button>
+            <div class="clarify-output" id="clarifyOutput">No output yet.</div>
+          </section>
         </div>
-      </section>
 
-      <section class="page" id="page-train">
-        <header class="page-head">
-          <div>
-            <h1>Train</h1>
-            <p class="page-sub">Teach AFK your words, names, handles, and spoken shortcuts.</p>
-          </div>
-          <div class="head-status">
-            <span class="status-pill" id="trainSummary">0 samples</span>
-          </div>
-        </header>
-
-        <div class="train-grid">
-          <section class="card train-card" aria-labelledby="trainWordTitle">
-            <div class="card-title" id="trainWordTitle">
-              <span>Word training</span>
-              <span class="status-pill">Parakeet adapter</span>
-            </div>
-            <div class="train-fields">
-              <label>
-                <span>Word or phrase AFK should recognize</span>
-                <input type="text" id="trainWordInput" spellcheck="false">
-              </label>
-            </div>
-            <div class="record-actions">
-              <button class="btn" id="trainWordStartBtn">Record word</button>
-              <button class="btn btn-primary" id="trainWordFinishBtn">Finish and learn</button>
-            </div>
-            <div class="training-status" id="trainWordStatus">Type a word, record yourself saying it, then AFK maps Parakeet's heard text to your intended word.</div>
-          </section>
-
-          <section class="card train-card" aria-labelledby="trainTriggerTitle">
-            <div class="card-title" id="trainTriggerTitle">
-              <span>Triggers</span>
-              <span class="status-pill">Text expansion</span>
-            </div>
-            <div class="train-fields">
-              <label>
-                <span>When I say</span>
-                <input type="text" id="trainTriggerInput" spellcheck="false">
-              </label>
-              <label>
-                <span>Output this</span>
-                <input type="text" id="trainOutputInput" spellcheck="false">
-              </label>
-              <label>
-                <span>Trigger type</span>
-                <select id="trainTriggerType">
-                  <option value="autofill">Autofill</option>
-                  <option value="autoreplace">Autoreplace</option>
-                </select>
-              </label>
-            </div>
-            <div class="record-actions">
-              <button class="btn" id="trainTriggerStartBtn">Record trigger</button>
-              <button class="btn btn-primary" id="trainTriggerFinishBtn">Finish and learn</button>
-            </div>
-            <div class="training-status" id="trainTriggerStatus">Record the spoken trigger once. Future transcripts replace that trigger with the output text.</div>
-          </section>
-
-          <section class="card train-ledger" aria-labelledby="trainLedgerTitle">
-            <div class="card-title" id="trainLedgerTitle">
-              <span>Training memory</span>
-              <button class="btn btn-quiet" id="clearTrainingBtn">Clear training</button>
-            </div>
-            <div class="training-list" id="trainingList">
-              <div class="empty-hint">No training samples yet.</div>
-            </div>
-          </section>
+        <div class="hidden-hotkeys" aria-hidden="true">
+          <span id="clarifyHotkey">-</span><span id="learnHotkey">-</span>
+          <span id="codeHoldHotkey">-</span><span id="codeToggleHotkey">-</span>
+          <span id="activeModel">-</span>
         </div>
       </section>
 
       <section class="page" id="page-statistics">
         <header class="page-head">
           <div>
+            <span class="page-kicker">Private activity</span>
             <h1>Statistics</h1>
-            <p class="page-sub">Everything stays on this device.</p>
           </div>
         </header>
         <div class="stats-stack" id="statsGrid">
@@ -200,11 +179,63 @@
         </div>
       </section>
 
+      <section class="page" id="page-train">
+        <header class="page-head">
+          <div>
+            <span class="page-kicker">Personal vocabulary</span>
+            <h1>Train</h1>
+          </div>
+          <span class="status-pill" id="trainSummary">0 samples</span>
+        </header>
+
+        <div class="train-grid">
+          <section class="train-panel" aria-labelledby="trainWordTitle">
+            <div class="section-head">
+              <div><span class="section-kicker">Recognition</span><h2 id="trainWordTitle">Words and names</h2></div>
+              <span class="status-pill">Parakeet</span>
+            </div>
+            <div class="train-fields">
+              <label><span>Word or phrase</span><input type="text" id="trainWordInput" spellcheck="false" /></label>
+            </div>
+            <div class="record-actions">
+              <button class="btn" id="trainWordStartBtn">Record</button>
+              <button class="btn btn-primary" id="trainWordFinishBtn">Finish and learn</button>
+            </div>
+            <div class="training-status" id="trainWordStatus">Ready for a sample.</div>
+          </section>
+
+          <section class="train-panel" aria-labelledby="trainTriggerTitle">
+            <div class="section-head">
+              <div><span class="section-kicker section-kicker-blue">Expansion</span><h2 id="trainTriggerTitle">Spoken triggers</h2></div>
+              <span class="status-pill status-pill-blue">Text output</span>
+            </div>
+            <div class="train-fields">
+              <label><span>When I say</span><input type="text" id="trainTriggerInput" spellcheck="false" /></label>
+              <label><span>Output</span><input type="text" id="trainOutputInput" spellcheck="false" /></label>
+              <label><span>Mode</span><select id="trainTriggerType"><option value="autofill">Autofill</option><option value="autoreplace">Autoreplace</option></select></label>
+            </div>
+            <div class="record-actions">
+              <button class="btn" id="trainTriggerStartBtn">Record</button>
+              <button class="btn btn-primary" id="trainTriggerFinishBtn">Finish and learn</button>
+            </div>
+            <div class="training-status" id="trainTriggerStatus">Ready for a trigger.</div>
+          </section>
+
+          <section class="train-ledger" aria-labelledby="trainLedgerTitle">
+            <div class="section-head">
+              <div><span class="section-kicker">Saved locally</span><h2 id="trainLedgerTitle">Training memory</h2></div>
+              <button class="btn btn-quiet btn-compact" id="clearTrainingBtn">Clear</button>
+            </div>
+            <div class="training-list" id="trainingList"><div class="empty-hint">No training samples yet.</div></div>
+          </section>
+        </div>
+      </section>
+
       <section class="page" id="page-settings">
         <header class="page-head">
           <div>
+            <span class="page-kicker">Behavior and controls</span>
             <h1>Settings</h1>
-            <p class="page-sub">Tune AFK to your workflow.</p>
           </div>
         </header>
         <div class="settings-list" id="settingsList">
@@ -215,21 +246,28 @@
       <section class="page" id="page-about">
         <header class="page-head">
           <div>
-            <h1>About</h1>
-            <p class="page-sub">Privacy-first, fully local speech tools.</p>
+            <span class="page-kicker">Private by design</span>
+            <h1>About AFK</h1>
           </div>
         </header>
-        <section class="card about-card" aria-label="About AFK">
-          <div class="info-row"><span class="info-label">Version</span><span class="info-value" id="aboutVersion">-</span></div>
-          <div class="info-row"><span class="info-label">Electron</span><span class="info-value" id="aboutElectron">-</span></div>
-          <div class="info-row"><span class="info-label">Node</span><span class="info-value" id="aboutNode">-</span></div>
-          <div class="info-row"><span class="info-label">Backend</span><span class="info-value" id="aboutBackend">-</span></div>
-          <div class="info-row"><span class="info-label">Models</span><span class="info-value" id="aboutModels">-</span></div>
-          <div class="info-row"><span class="info-label">License</span><span class="info-value">MIT</span></div>
-          <div class="about-credits">
-            <p>Speech recognition: <strong>Parakeet 0.6B v3</strong></p>
-            <p>Clarify short: <strong>Gemma 3 270M</strong></p>
-            <p>Clarify long: <strong>Gemma 4 E2B IT</strong></p>
+        <section class="about-layout" aria-label="About AFK">
+          <div class="about-identity">
+            <img src="../assets/icon.png" alt="" />
+            <strong>AFK</strong>
+            <span>Local speech to text</span>
+          </div>
+          <div class="about-facts">
+            <div class="info-row"><span class="info-label">Version</span><span class="info-value" id="aboutVersion">-</span></div>
+            <div class="info-row"><span class="info-label">Backend</span><span class="info-value" id="aboutBackend">-</span></div>
+            <div class="info-row"><span class="info-label">Models</span><span class="info-value" id="aboutModels">-</span></div>
+            <div class="info-row"><span class="info-label">Electron</span><span class="info-value" id="aboutElectron">-</span></div>
+            <div class="info-row"><span class="info-label">Node</span><span class="info-value" id="aboutNode">-</span></div>
+            <div class="info-row"><span class="info-label">License</span><span class="info-value">MIT</span></div>
+          </div>
+          <div class="model-ledger">
+            <div><span>Speech</span><strong>Parakeet 0.6B v3</strong></div>
+            <div><span>Short cleanup</span><strong>Gemma 3 270M</strong></div>
+            <div><span>Long cleanup</span><strong>Gemma 4 E2B IT</strong></div>
           </div>
         </section>
       </section>

@@ -57,9 +57,10 @@ function sameMods(a, b) {
 }
 
 class MacHotkeyManager {
-  constructor(callbacks, logger) {
+  constructor(callbacks, logger, hook = uIOhook) {
     this.callbacks = callbacks;
     this.logger = logger;
+    this.hook = hook;
     this.downKeys = new Set();
     this.pttActive = false;
     this.pttTimer = null;
@@ -67,6 +68,9 @@ class MacHotkeyManager {
     this.started = false;
     this.listening = false;
     this.bindings = {};
+    this.startedAt = 0;
+    this.lastEventAt = 0;
+    this.eventCount = 0;
   }
 
   configure(hotkeys = {}) {
@@ -89,18 +93,19 @@ class MacHotkeyManager {
     const onKeyDown = (event) => this._onKeyDown(event);
     const onKeyUp = (event) => this._onKeyUp(event);
     try {
-      uIOhook.on('keydown', onKeyDown);
-      uIOhook.on('keyup', onKeyUp);
-      uIOhook.start();
+      this.hook.on('keydown', onKeyDown);
+      this.hook.on('keyup', onKeyUp);
+      this.hook.start();
       this.started = true;
       this.listening = true;
+      this.startedAt = Date.now();
       this._log('info', 'mac native hotkey listener started');
     } catch (err) {
       this.started = false;
       this.listening = false;
       try {
-        uIOhook.removeListener('keydown', onKeyDown);
-        uIOhook.removeListener('keyup', onKeyUp);
+        this.hook.removeListener('keydown', onKeyDown);
+        this.hook.removeListener('keyup', onKeyUp);
       } catch (_) {
         // ignore listener cleanup races
       }
@@ -109,24 +114,42 @@ class MacHotkeyManager {
   }
 
   stop() {
-    if (!this.started) return;
+    const wasStarted = this.started;
     this.started = false;
+    this.listening = false;
     this._cancelPttTimer();
+    this.downKeys.clear();
+    this.edgeFiredFor.clear();
+    this.pttActive = false;
     try {
-      uIOhook.stop();
-      uIOhook.removeAllListeners('keydown');
-      uIOhook.removeAllListeners('keyup');
+      if (wasStarted) this.hook.stop();
+      this.hook.removeAllListeners('keydown');
+      this.hook.removeAllListeners('keyup');
     } catch (_) {
       // ignore shutdown races
     }
-    this.listening = false;
   }
 
   isListening() {
     return this.listening;
   }
 
+  status() {
+    return {
+      listening: this.listening,
+      started_at: this.startedAt,
+      last_event_at: this.lastEventAt,
+      event_count: this.eventCount
+    };
+  }
+
+  _observeEvent() {
+    this.lastEventAt = Date.now();
+    this.eventCount += 1;
+  }
+
   _onKeyDown(event) {
+    this._observeEvent();
     const keycode = event.keycode;
     const alreadyDown = this.downKeys.has(keycode);
     this.downKeys.add(keycode);
@@ -160,6 +183,7 @@ class MacHotkeyManager {
   }
 
   _onKeyUp(event) {
+    this._observeEvent();
     const keycode = event.keycode;
     this.downKeys.delete(keycode);
 

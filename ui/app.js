@@ -4,6 +4,7 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 let isRecording = false;
+let recordTransitioning = false;
 let recTimer = null;
 let recStart = 0;
 let _settingsCache = null;
@@ -222,7 +223,7 @@ function setBackendStatus(ready) {
   const dot = $('#backendDot');
   const label = $('#backendLabel');
   dot.className = ready ? 'dot dot-ok' : 'dot dot-pending';
-  label.textContent = ready ? 'Backend ready' : 'Starting backend...';
+  label.textContent = ready ? 'Backend ready' : 'Starting backend';
 }
 
 async function initAbout() {
@@ -320,25 +321,21 @@ async function loadAsrModel() {
 
 async function toggleRecord() {
   const btn = $('#recordBtn');
+  if (recordTransitioning) return;
+  recordTransitioning = true;
+  if (btn) btn.disabled = true;
   try {
     if (!isRecording) {
       const device = $('#micSelect').value || null;
+      setRecordButtonLabel('Starting');
       await window.afk.call('start_recording', { device });
-      isRecording = true;
-      if (btn) {
-        btn.textContent = 'Stop and transcribe';
-        btn.classList.add('recording');
-      }
+      setRecording(true);
       return;
     }
 
-    if (btn) {
-      btn.textContent = 'Transcribing...';
-      btn.disabled = true;
-    }
+    setRecordButtonLabel('Transcribing');
     const res = await window.afk.call('finish_recording', {});
-    isRecording = false;
-    if (btn) btn.classList.remove('recording');
+    setRecording(false);
     if (res && res.text) {
       const action = res.action === 'pasted' ? 'Pasted.' : 'Copied to clipboard.';
       showTranscription(res.text, action);
@@ -347,16 +344,12 @@ async function toggleRecord() {
       showTranscription('', res.message);
     }
   } catch (e) {
-    isRecording = false;
-    if (btn) btn.classList.remove('recording');
+    setRecording(false);
     showTranscription(`Recording failed: ${e.message || e}`);
   } finally {
-    if (!isRecording) {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'Start recording';
-      }
-    }
+    recordTransitioning = false;
+    if (btn) btn.disabled = false;
+    setRecordButtonLabel(isRecording ? 'Stop and transcribe' : 'Start recording');
     refreshAsrStatus();
   }
 }
@@ -432,7 +425,7 @@ async function refreshHotkeys() {
     $('#learnHotkey').textContent = defaults.learn_correction;
     if ($('#codeHoldHotkey')) $('#codeHoldHotkey').textContent = defaults.code_push_to_talk;
     if ($('#codeToggleHotkey')) $('#codeToggleHotkey').textContent = defaults.code_toggle;
-    setText('#hotkeyStatus', 'Unavailable');
+    setHotkeyHealth('Unavailable', 'bad');
   }
 }
 
@@ -440,18 +433,58 @@ async function refreshHotkeyStatus() {
   try {
     const status = await window.afk.call('hotkeys_status', {});
     if (!status.available) {
-      setText('#hotkeyStatus', 'Unavailable');
+      setHotkeyHealth('Unavailable', 'bad');
     } else if (_platform === 'darwin' && status.mac_input_monitoring_trusted === false) {
-      setText('#hotkeyStatus', 'Input Monitoring needed');
+      setHotkeyHealth('Input Monitoring needed', 'bad');
     } else if (_platform === 'darwin' && status.mac_accessibility_trusted === false) {
-      setText('#hotkeyStatus', 'Accessibility needed');
+      setHotkeyHealth('Accessibility needed', 'bad');
     } else if (status.error) {
-      setText('#hotkeyStatus', status.error);
+      setHotkeyHealth(status.error, 'bad');
     } else {
-      setText('#hotkeyStatus', status.listening ? 'Ready' : 'Starting');
+      setHotkeyHealth(status.listening ? 'Ready' : 'Starting', status.listening ? 'ok' : 'pending');
     }
   } catch (e) {
-    setText('#hotkeyStatus', 'Unavailable');
+    setHotkeyHealth('Unavailable', 'bad');
+  }
+}
+
+function setHotkeyHealth(label, kind) {
+  setText('#hotkeyStatus', label);
+  const dot = $('#hotkeyHealthDot');
+  if (dot) dot.className = `dot dot-${kind}`;
+}
+
+function setRestartControls(busy) {
+  const inline = $('#restartHotkeysInlineBtn');
+  if (inline) {
+    inline.disabled = busy;
+    inline.textContent = busy ? 'Restarting' : 'Restart';
+  }
+  const sidebar = $('#restartHotkeysBtn');
+  if (sidebar) {
+    sidebar.disabled = busy;
+    const label = sidebar.querySelector('span:last-child');
+    if (label) label.textContent = busy ? 'Restarting' : 'Restart shortcuts';
+  }
+  const settings = $('#settingsRestartHotkeysBtn');
+  if (settings) {
+    settings.disabled = busy;
+    settings.textContent = busy ? 'Restarting' : 'Restart shortcuts';
+  }
+}
+
+async function restartHotkeys() {
+  setRestartControls(true);
+  setHotkeyHealth('Restarting', 'pending');
+  try {
+    await window.afk.app.restartHotkeys();
+    setTimeout(() => {
+      setRestartControls(false);
+      refreshHotkeyStatus();
+    }, 1100);
+  } catch (e) {
+    setRestartControls(false);
+    setHotkeyHealth('Restart failed', 'bad');
   }
 }
 
@@ -843,6 +876,10 @@ function settingRow(name, desc, controlHtml) {
     `<span class="setting-desc">${escapeHtml(desc)}</span></div><div class="setting-control">${controlHtml}</div></div>`;
 }
 
+function settingsGroup(title, rows) {
+  return `<section class="settings-group"><h2 class="settings-group-title">${escapeHtml(title)}</h2>${rows.join('')}</section>`;
+}
+
 function toggleHtml(id, checked) {
   return `<label class="switch" aria-label="${escapeHtml(id)}"><input type="checkbox" id="${id}" ${checked ? 'checked' : ''}><span class="slider"></span></label>`;
 }
@@ -870,26 +907,35 @@ async function refreshSettings() {
     const options = hotkeyOptions();
 
     list.innerHTML =
-      settingRow('Microphone', 'Input device for dictation', `<select id="set-microphone">${micOpts}</select>`) +
-      settingRow('Theme', 'Application appearance', `<select id="set-theme"><option value="dark" ${cfg.theme !== 'light' ? 'selected' : ''}>Dark</option><option value="light" ${cfg.theme === 'light' ? 'selected' : ''}>Light</option></select>`) +
-      settingRow('Start on login', 'Launch AFK when you sign in', toggleHtml('set-startup_on_login', cfg.startup_on_login)) +
-      settingRow('Launch minimized', 'Open directly into the system tray', toggleHtml('set-launch_minimized', cfg.launch_minimized)) +
-      settingRow('Auto-paste', 'Paste dictation into the active app', toggleHtml('set-auto_paste', cfg.auto_paste)) +
-      settingRow('Auto-clarify', 'Run grammar cleanup before paste', toggleHtml('set-auto_clarify', cfg.auto_clarify)) +
-      settingRow('Capitalization', 'Capitalize transcripts automatically', toggleHtml('set-auto_capitalization', cfg.auto_capitalization !== false)) +
-      settingRow('Punctuation', 'Keep punctuation from speech recognition', toggleHtml('set-auto_punctuation', cfg.auto_punctuation !== false)) +
-      settingRow('Training corrections', 'Apply words and triggers from the Train tab', toggleHtml('set-training_corrections', cfg.training_corrections !== false)) +
-      settingRow('Code language', 'Target language for code mode formatting', `<select id="set-code_language">${codeLanguageOptions(cfg.code_language || 'auto')}</select>`) +
-      settingRow('Word-count threshold', 'Use the long model above this number of words', `<input type="number" id="set-word_count_threshold" min="1" max="500" value="${escapeHtml(cfg.word_count_threshold)}">`) +
-      settingRow('Push-to-talk hotkey', 'Hold to record', `<select id="hk-push_to_talk">${optionsHtml(options, hk.push_to_talk || defaults.push_to_talk)}</select>`) +
-      settingRow('Toggle hotkey', 'Press once to start or stop', `<select id="hk-toggle">${optionsHtml(options, hk.toggle || defaults.toggle)}</select>`) +
-      settingRow('Code hold hotkey', 'Hold to dictate code syntax', `<select id="hk-code_push_to_talk">${optionsHtml(options, hk.code_push_to_talk || defaults.code_push_to_talk)}</select>`) +
-      settingRow('Code toggle hotkey', 'Press once to start or stop code mode', `<select id="hk-code_toggle">${optionsHtml(options, hk.code_toggle || defaults.code_toggle)}</select>`) +
-      settingRow('Clarify hotkey', 'Polish selected text or clipboard', `<select id="hk-clarify">${optionsHtml(options, hk.clarify || defaults.clarify)}</select>`) +
-      settingRow('Learn correction hotkey', 'Select corrected text after dictation', `<select id="hk-learn_correction">${optionsHtml(options, hk.learn_correction || defaults.learn_correction)}</select>`) +
-      settingRow('Logging', 'Write diagnostic logs to disk', toggleHtml('set-logging', cfg.logging)) +
-      settingRow('Developer mode', 'Enable extra diagnostics', toggleHtml('set-developer_mode', cfg.developer_mode)) +
-      `<div class="settings-actions"><button class="btn" id="resetStatsBtn">Reset statistics</button></div>`;
+      settingsGroup('Audio and startup', [
+        settingRow('Microphone', 'Input device', `<select id="set-microphone">${micOpts}</select>`),
+        settingRow('Start on login', 'Keep AFK ready after sign-in', toggleHtml('set-startup_on_login', cfg.startup_on_login)),
+        settingRow('Launch minimized', 'Start in the menu bar', toggleHtml('set-launch_minimized', cfg.launch_minimized)),
+        settingRow('Theme', 'Application appearance', `<select id="set-theme"><option value="dark" ${cfg.theme !== 'light' ? 'selected' : ''}>Dark</option><option value="light" ${cfg.theme === 'light' ? 'selected' : ''}>Light</option></select>`)
+      ]) +
+      settingsGroup('Dictation', [
+        settingRow('Auto-paste', 'Insert into the focused text field', toggleHtml('set-auto_paste', cfg.auto_paste)),
+        settingRow('Auto-clarify', 'Polish grammar before insertion', toggleHtml('set-auto_clarify', cfg.auto_clarify)),
+        settingRow('Capitalization', 'Capitalize transcripts', toggleHtml('set-auto_capitalization', cfg.auto_capitalization !== false)),
+        settingRow('Punctuation', 'Keep recognized punctuation', toggleHtml('set-auto_punctuation', cfg.auto_punctuation !== false)),
+        settingRow('Training corrections', 'Apply personal vocabulary', toggleHtml('set-training_corrections', cfg.training_corrections !== false)),
+        settingRow('Code language', 'Formatting target for code mode', `<select id="set-code_language">${codeLanguageOptions(cfg.code_language || 'auto')}</select>`),
+        settingRow('Long-model threshold', 'Words before long cleanup', `<input type="number" id="set-word_count_threshold" min="1" max="500" value="${escapeHtml(cfg.word_count_threshold)}">`)
+      ]) +
+      settingsGroup('Shortcuts', [
+        settingRow('Shortcut listener', 'Native macOS keyboard listener', '<button class="btn btn-quiet" id="settingsRestartHotkeysBtn">Restart shortcuts</button>'),
+        settingRow('Push to talk', 'Hold to record', `<select id="hk-push_to_talk">${optionsHtml(options, hk.push_to_talk || defaults.push_to_talk)}</select>`),
+        settingRow('Toggle dictation', 'Start or stop', `<select id="hk-toggle">${optionsHtml(options, hk.toggle || defaults.toggle)}</select>`),
+        settingRow('Code hold', 'Hold for code mode', `<select id="hk-code_push_to_talk">${optionsHtml(options, hk.code_push_to_talk || defaults.code_push_to_talk)}</select>`),
+        settingRow('Code toggle', 'Start or stop code mode', `<select id="hk-code_toggle">${optionsHtml(options, hk.code_toggle || defaults.code_toggle)}</select>`),
+        settingRow('Clarify', 'Polish selected text', `<select id="hk-clarify">${optionsHtml(options, hk.clarify || defaults.clarify)}</select>`),
+        settingRow('Learn correction', 'Capture corrected selection', `<select id="hk-learn_correction">${optionsHtml(options, hk.learn_correction || defaults.learn_correction)}</select>`)
+      ]) +
+      settingsGroup('Diagnostics', [
+        settingRow('Logging', 'Write local diagnostics', toggleHtml('set-logging', cfg.logging)),
+        settingRow('Developer mode', 'Show extended diagnostics', toggleHtml('set-developer_mode', cfg.developer_mode)),
+        '<div class="settings-actions"><button class="btn btn-quiet" id="resetStatsBtn">Reset statistics</button></div>'
+      ]);
 
     wireSettingControls();
     enhanceSelects(list);
@@ -920,6 +966,7 @@ function wireSettingControls() {
     saveSetting('theme', e.target.value);
   });
   $('#set-code_language').addEventListener('change', (e) => saveSetting('code_language', e.target.value || 'auto'));
+  $('#settingsRestartHotkeysBtn').addEventListener('click', restartHotkeys);
 
   const threshold = $('#set-word_count_threshold');
   threshold.addEventListener('change', () => {
@@ -1033,10 +1080,12 @@ function setRecording(on) {
   const btn = $('#recordBtn');
   isRecording = on;
   if (orb) orb.classList.toggle('recording', on);
-  if (status) status.textContent = on ? 'Recording' : 'Idle';
+  const deck = $('#commandDeck');
+  if (deck) deck.classList.toggle('recording', on);
+  if (status) status.textContent = on ? 'Listening' : 'Ready';
   if (btn) {
     btn.classList.toggle('recording', on);
-    btn.textContent = on ? 'Stop and transcribe' : 'Start recording';
+    setRecordButtonLabel(on ? 'Stop and transcribe' : 'Start recording');
     btn.disabled = false;
   }
   if (!on && activeTrainingKind) {
@@ -1057,6 +1106,13 @@ function setRecording(on) {
     clearInterval(recTimer);
     recTimer = null;
   }
+}
+
+function setRecordButtonLabel(label) {
+  const btn = $('#recordBtn');
+  if (!btn) return;
+  const icon = label === 'Stop and transcribe' ? '&#9632;' : '&#9679;';
+  btn.innerHTML = `<span class="record-button-icon" aria-hidden="true">${icon}</span><span>${escapeHtml(label)}</span>`;
 }
 
 async function copyTranscript(text) {
@@ -1085,6 +1141,16 @@ window.addEventListener('DOMContentLoaded', async () => {
   initTrainControls();
   enhanceSelects();
   if ($('#recordBtn')) $('#recordBtn').addEventListener('click', toggleRecord);
+  if ($('#restartHotkeysBtn')) $('#restartHotkeysBtn').addEventListener('click', restartHotkeys);
+  if ($('#restartHotkeysInlineBtn')) $('#restartHotkeysInlineBtn').addEventListener('click', restartHotkeys);
+  if ($('#quitBtn')) $('#quitBtn').addEventListener('click', () => window.afk.app.quit());
+  if ($('#copyTranscriptBtn')) {
+    $('#copyTranscriptBtn').addEventListener('click', () => {
+      const transcript = $('#transcription');
+      const text = transcript && !transcript.querySelector('.placeholder') ? transcript.textContent.trim() : '';
+      copyTranscript(text);
+    });
+  }
   if ($('#loadAsrBtn')) $('#loadAsrBtn').addEventListener('click', loadAsrModel);
   if ($('#micSelect')) $('#micSelect').addEventListener('change', onMicChange);
   if ($('#clarifyBtn')) $('#clarifyBtn').addEventListener('click', clarifyText);
