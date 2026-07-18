@@ -139,6 +139,22 @@ class StatsStore:
             return 0
         return s.get("current", 0) if gap <= 1 else 0
 
+    def _activity(self, days: int = 14) -> list[Dict[str, Any]]:
+        """Return a continuous recent series for truthful UI charts."""
+        today = date.today()
+        start = today - timedelta(days=days - 1)
+        activity = []
+        for offset in range(days):
+            current = start + timedelta(days=offset)
+            bucket = self._data["daily"].get(current.isoformat(), {})
+            activity.append({
+                "date": current.isoformat(),
+                "words": int(bucket.get("words", 0)),
+                "recordings": int(bucket.get("recordings", 0)),
+                "recording_seconds": round(float(bucket.get("recording_seconds", 0.0)), 1),
+            })
+        return activity
+
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             t = self._data["totals"]
@@ -170,6 +186,7 @@ class StatsStore:
                 "streak_longest": self._data["streak"].get("longest", 0),
                 "typing_minutes_saved": round(typing_minutes_saved, 1),
                 "typing_wpm_assumed": config.TYPING_WPM,
+                "activity": self._activity(),
             }
 
     def reset(self) -> None:

@@ -9,123 +9,88 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
+  <div class="app-shell">
+    <header class="topbar">
       <div class="brand">
         <img class="brand-mark" src="../assets/logo-source.png" alt="" />
-        <div class="brand-text">
-          <span class="brand-name">AFK</span>
-          <span class="brand-sub">Voice to text</span>
-        </div>
+        <div class="brand-copy"><strong>AFK</strong><span>VOICE WORKSPACE</span></div>
       </div>
 
       <nav class="nav" aria-label="AFK views">
-        <button class="nav-item active" data-page="home" title="Dictation">
-          <span class="nav-index" aria-hidden="true">01</span><span>Dictation</span>
-        </button>
-        <button class="nav-item" data-page="statistics" title="Statistics">
-          <span class="nav-index" aria-hidden="true">02</span><span>Statistics</span>
-        </button>
-        <button class="nav-item" data-page="train" title="Train">
-          <span class="nav-index" aria-hidden="true">03</span><span>Train</span>
-        </button>
-        <button class="nav-item" data-page="settings" title="Settings">
-          <span class="nav-index" aria-hidden="true">04</span><span>Settings</span>
-        </button>
-        <button class="nav-item" data-page="about" title="About">
-          <span class="nav-index" aria-hidden="true">05</span><span>About</span>
-        </button>
+        <button class="nav-item active" data-page="home">Dictate</button>
+        <button class="nav-item" data-page="statistics">Insights</button>
+        <button class="nav-item" data-page="train">Train</button>
+        <button class="nav-item" data-page="settings">Settings</button>
+        <button class="nav-item" data-page="about">About</button>
       </nav>
-    </aside>
 
-    <main class="content">
+      <div class="mode-signature" aria-label="Dictation shortcuts">
+        <span>Hold</span><kbd id="pttHotkey">Option</kbd>
+        <span class="shortcut-divider" aria-hidden="true"></span>
+        <span>Toggle</span><kbd id="toggleHotkey">Option+Space</kbd>
+      </div>
+    </header>
+
+    <main class="workspace">
       <section class="page active" id="page-home">
-        <header class="page-head">
-          <div>
-            <span class="page-kicker">Voice workspace</span>
-            <h1>Dictation</h1>
-          </div>
-          <div class="mode-signature" aria-label="Dictation shortcuts">
-            <span>Hold</span><kbd id="pttHotkey">Option</kbd>
-            <i aria-hidden="true"></i>
-            <span>Toggle</span><kbd id="toggleHotkey">Option+Space</kbd>
+        <header class="page-head home-head">
+          <div><span class="page-kicker">Speak naturally</span><h1>Dictate</h1></div>
+          <div class="shortcut-health" aria-live="polite">
+            <span class="dot dot-pending" id="hotkeyHealthDot"></span>
+            <strong id="hotkeyStatus">Starting shortcuts</strong>
           </div>
         </header>
 
-        <section class="command-deck" id="commandDeck" aria-label="Dictation controls">
-          <div class="command-main">
-            <div class="record-state">
-              <div class="record-orb" id="recordOrb" aria-hidden="true"></div>
-              <div class="record-copy">
-                <span class="section-kicker">Voice input</span>
-                <strong class="record-status" id="recordStatus">Ready</strong>
-                <span class="record-timer" id="recordTimer">00:00</span>
+        <div class="live-grid">
+          <section class="command-deck" id="commandDeck" aria-label="Dictation controls">
+            <div class="live-status">
+              <span class="section-kicker">Live input</span>
+              <div class="record-readout">
+                <button class="record-orb" id="recordOrb" type="button" aria-hidden="true" tabindex="-1"></button>
+                <div><strong class="record-status" id="recordStatus">Ready</strong><span class="record-timer" id="recordTimer">00:00</span></div>
               </div>
             </div>
-
-            <div class="record-controls">
+            <div class="live-actions">
               <div class="field-block mic-field">
                 <label for="micSelect">Microphone</label>
                 <select class="mic-select" id="micSelect"><option value="">System default</option></select>
               </div>
               <button class="btn btn-primary record-button" id="recordBtn">
-                <span class="record-button-icon" aria-hidden="true">&#9679;</span>
-                <span>Start recording</span>
+                <span class="record-button-icon" aria-hidden="true">&#9679;</span><span>Start recording</span>
               </button>
             </div>
-          </div>
+          </section>
 
-          <div class="shortcut-strip">
-            <div class="shortcut-health">
-              <span class="dot dot-pending" id="hotkeyHealthDot"></span>
-              <span>Shortcuts</span>
-              <strong id="hotkeyStatus">Starting</strong>
-            </div>
-          </div>
-        </section>
-
-        <section class="transcript-stage" aria-labelledby="transcriptTitle">
-          <div class="section-head">
-            <div>
-              <span class="section-kicker">Latest output</span>
-              <h2 id="transcriptTitle">Transcript</h2>
-            </div>
-            <div class="section-actions">
+          <section class="transcript-stage" aria-labelledby="transcriptTitle">
+            <div class="section-head">
+              <div><span class="section-kicker section-kicker-cyan">Latest output</span><h2 id="transcriptTitle">Transcript</h2></div>
               <button class="btn btn-quiet btn-compact" id="copyTranscriptBtn">Copy text</button>
             </div>
-          </div>
-          <div class="transcription" id="transcription"><span class="placeholder">No transcript yet.</span></div>
-        </section>
+            <div class="transcription" id="transcription"><span class="placeholder">Your next transcript will appear here.</span></div>
+          </section>
+        </div>
 
-        <section class="dashboard-band" aria-label="Today at a glance">
+        <section class="performance-stage" aria-label="Dictation performance">
           <div class="home-stats" id="homeStats">
-            <div class="empty-hint">Statistics will appear after your first dictation.</div>
+            <div class="empty-hint">Your numbers are getting ready.</div>
           </div>
           <div class="home-chart" id="homeChart">
-            <div class="empty-hint">Activity will appear after your first dictation.</div>
+            <div class="empty-hint">Your voice trail is getting ready.</div>
           </div>
         </section>
 
         <div class="home-lower">
           <section class="history-section" aria-labelledby="historyTitle">
             <div class="section-head">
-              <div>
-                <span class="section-kicker">On this Mac</span>
-                <h2 id="historyTitle">Recent dictation</h2>
-              </div>
+              <div><span class="section-kicker">On this Mac</span><h2 id="historyTitle">Recent dictation</h2></div>
               <button class="btn btn-quiet btn-compact" id="clearHistoryBtn">Clear</button>
             </div>
-            <div class="history-list" id="historyList">
-              <div class="empty-hint">No transcriptions yet.</div>
-            </div>
+            <div class="history-list" id="historyList"><div class="empty-hint">No transcriptions yet.</div></div>
           </section>
 
           <section class="clarify-section" aria-labelledby="clarifyTitle">
             <div class="section-head">
-              <div>
-                <span class="section-kicker section-kicker-blue">Local cleanup</span>
-                <h2 id="clarifyTitle">Clarify</h2>
-              </div>
+              <div><span class="section-kicker section-kicker-orange">Refine locally</span><h2 id="clarifyTitle">Clarify</h2></div>
               <span class="section-meta" id="clarifyMeta"></span>
             </div>
             <textarea class="clarify-input" id="clarifyInput" rows="5" placeholder="Text to clarify" spellcheck="true"></textarea>
@@ -142,53 +107,36 @@
 
       <section class="page" id="page-statistics">
         <header class="page-head">
-          <div>
-            <span class="page-kicker">Private activity</span>
-            <h1>Statistics</h1>
-          </div>
+          <div><span class="page-kicker">Your momentum</span><h1>Insights</h1></div>
+          <span class="page-tag">PRIVATE &amp; LOCAL</span>
         </header>
-        <div class="stats-stack" id="statsGrid">
-          <div class="empty-hint">Statistics will populate as you dictate.</div>
-        </div>
+        <div class="stats-stack" id="statsGrid"><div class="empty-hint">Your insights are getting ready.</div></div>
       </section>
 
       <section class="page" id="page-train">
         <header class="page-head">
-          <div>
-            <span class="page-kicker">Personal vocabulary</span>
-            <h1>Train</h1>
-          </div>
-          <span class="status-pill" id="trainSummary">0 samples</span>
+          <div><span class="page-kicker">Personal vocabulary</span><h1>Train</h1></div>
+          <span class="page-tag page-tag-green" id="trainSummary">0 SAMPLES</span>
         </header>
 
         <div class="train-grid">
           <section class="train-panel" aria-labelledby="trainWordTitle">
-            <div class="section-head">
-              <div><span class="section-kicker">Recognition</span><h2 id="trainWordTitle">Words and names</h2></div>
-            </div>
-            <div class="train-fields">
-              <label><span>Word or phrase</span><input type="text" id="trainWordInput" spellcheck="false" /></label>
-            </div>
-            <div class="record-actions">
-              <button class="btn" id="trainWordStartBtn">Record</button>
-              <button class="btn btn-primary" id="trainWordFinishBtn">Finish and learn</button>
-            </div>
+            <div class="panel-number">01</div>
+            <div class="section-head"><div><span class="section-kicker section-kicker-cyan">Recognition</span><h2 id="trainWordTitle">Words and names</h2></div></div>
+            <div class="train-fields"><label><span>Word or phrase</span><input type="text" id="trainWordInput" spellcheck="false" /></label></div>
+            <div class="record-actions"><button class="btn" id="trainWordStartBtn">Record</button><button class="btn btn-primary" id="trainWordFinishBtn">Finish and learn</button></div>
             <div class="training-status" id="trainWordStatus">Ready for a sample.</div>
           </section>
 
           <section class="train-panel" aria-labelledby="trainTriggerTitle">
-            <div class="section-head">
-              <div><span class="section-kicker section-kicker-blue">Expansion</span><h2 id="trainTriggerTitle">Spoken triggers</h2></div>
-            </div>
+            <div class="panel-number panel-number-orange">02</div>
+            <div class="section-head"><div><span class="section-kicker section-kicker-orange">Expansion</span><h2 id="trainTriggerTitle">Spoken triggers</h2></div></div>
             <div class="train-fields">
               <label><span>When I say</span><input type="text" id="trainTriggerInput" spellcheck="false" /></label>
               <label><span>Output</span><input type="text" id="trainOutputInput" spellcheck="false" /></label>
               <label><span>Mode</span><select id="trainTriggerType"><option value="autofill">Autofill</option><option value="autoreplace">Autoreplace</option></select></label>
             </div>
-            <div class="record-actions">
-              <button class="btn" id="trainTriggerStartBtn">Record</button>
-              <button class="btn btn-primary" id="trainTriggerFinishBtn">Finish and learn</button>
-            </div>
+            <div class="record-actions"><button class="btn" id="trainTriggerStartBtn">Record</button><button class="btn btn-primary" id="trainTriggerFinishBtn">Finish and learn</button></div>
             <div class="training-status" id="trainTriggerStatus">Ready for a trigger.</div>
           </section>
 
@@ -204,29 +152,19 @@
 
       <section class="page" id="page-settings">
         <header class="page-head">
-          <div>
-            <span class="page-kicker">Behavior and controls</span>
-            <h1>Settings</h1>
-          </div>
+          <div><span class="page-kicker">Make it yours</span><h1>Settings</h1></div>
         </header>
-        <div class="settings-list" id="settingsList">
-          <div class="empty-hint">Settings are getting ready.</div>
-        </div>
+        <div class="settings-list" id="settingsList"><div class="empty-hint">Settings are getting ready.</div></div>
       </section>
 
       <section class="page" id="page-about">
-        <header class="page-head">
-          <div>
-            <span class="page-kicker">Private by design</span>
-            <h1>About AFK</h1>
-          </div>
-        </header>
+        <header class="page-head"><div><span class="page-kicker">Private by design</span><h1>About AFK</h1></div></header>
         <section class="about-layout" aria-label="About AFK">
           <div class="about-identity">
             <img class="about-mark" src="../assets/logo-source.png" alt="" />
-            <strong>AFK</strong>
-            <span>Voice, in your own words.</span>
+            <div><strong>AFK</strong><span>Voice, in your own words.</span></div>
           </div>
+          <div class="about-statement">Your voice stays on your Mac.</div>
           <div class="about-facts">
             <div class="info-row"><span class="info-label">Version</span><span class="info-value" id="aboutVersion">-</span></div>
             <div class="info-row"><span class="info-label">Storage</span><span class="info-value">On this Mac</span></div>
@@ -236,7 +174,6 @@
       </section>
     </main>
   </div>
-
   <script src="app.js"></script>
 </body>
 </html>

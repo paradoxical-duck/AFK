@@ -612,26 +612,103 @@ function fmtDuration(sec) {
   return `${h}h ${m % 60}m`;
 }
 
-function statCard(value, label, accent) {
-  return `<div class="stat-card"><div class="stat-value${accent ? ' accent' : ''}">${escapeHtml(value)}</div>` +
-    `<div class="stat-label">${escapeHtml(label)}</div></div>`;
+function metric(value, label, detail, color) {
+  return `<div class="home-metric" style="--metric-color:${color}">
+    <strong>${escapeHtml(value)}</strong>
+    <span>${escapeHtml(label)}</span>
+    <small>${escapeHtml(detail)}</small>
+  </div>`;
 }
 
-function homeStatCard(value, label, accent) {
-  return `<div class="home-stat"><strong${accent ? ' class="accent"' : ''}>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+function activitySeries(stats) {
+  if (Array.isArray(stats.activity) && stats.activity.length) return stats.activity;
+  const today = new Date();
+  return Array.from({ length: 14 }, (_, index) => {
+    const current = new Date(today);
+    current.setDate(today.getDate() - (13 - index));
+    return {
+      date: current.toISOString().slice(0, 10),
+      words: index === 13 ? Number(stats.words.today || 0) : 0,
+      recordings: 0,
+      recording_seconds: 0
+    };
+  });
 }
 
-function barMeter(label, value, max, accent) {
-  const pct = Math.max(3, Math.min(100, max ? (Number(value || 0) / max) * 100 : 0));
-  return `<div class="bar-row"><span>${escapeHtml(label)}</span><div class="bar-track"><i class="${accent ? 'accent' : ''}" style="width:${pct}%"></i></div><b>${escapeHtml(value)}</b></div>`;
+function shortDate(value) {
+  const parsed = new Date(`${value}T12:00:00`);
+  return parsed.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function sparkBars(values) {
-  const max = Math.max(1, ...values.map((v) => Number(v || 0)));
-  return `<div class="spark-bars">${values.map((v, i) => {
-    const h = Math.max(12, Math.round((Number(v || 0) / max) * 76));
-    return `<span style="height:${h}px" title="Bucket ${i + 1}: ${escapeHtml(v)}"></span>`;
-  }).join('')}</div>`;
+function areaChartSvg(activity, options = {}) {
+  const width = 760;
+  const height = options.height || 240;
+  const pad = { top: 22, right: 18, bottom: 34, left: 44 };
+  const values = activity.map((item) => Number(item.words || 0));
+  const max = Math.max(1, ...values);
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const points = values.map((value, index) => ({
+    x: pad.left + (index / Math.max(1, values.length - 1)) * innerW,
+    y: pad.top + innerH - (value / max) * innerH,
+    value
+  }));
+  const line = points.map((point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+  const area = `${line} L${points[points.length - 1].x.toFixed(1)},${(pad.top + innerH).toFixed(1)} L${points[0].x.toFixed(1)},${(pad.top + innerH).toFixed(1)} Z`;
+  const grids = [0, 0.5, 1].map((ratio) => {
+    const y = pad.top + innerH - ratio * innerH;
+    const label = Math.round(max * ratio).toLocaleString();
+    return `<line class="chart-grid" x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}"></line>
+      <text class="chart-axis-label" x="${pad.left - 9}" y="${y + 3}" text-anchor="end">${label}</text>`;
+  }).join('');
+  const labelIndexes = Array.from(new Set([0, 3, 6, 9, activity.length - 1])).filter((index) => index < activity.length);
+  const labels = labelIndexes.map((index) =>
+    `<text class="chart-axis-label" x="${points[index].x}" y="${height - 8}" text-anchor="middle">${escapeHtml(shortDate(activity[index].date))}</text>`
+  ).join('');
+  const peak = values.indexOf(Math.max(...values));
+  const dots = points.map((point, index) => {
+    if (point.value <= 0 || (index !== peak && index !== points.length - 1)) return '';
+    return `<circle class="chart-point${index === points.length - 1 ? ' today' : ''}" cx="${point.x}" cy="${point.y}" r="5">
+      <title>${escapeHtml(shortDate(activity[index].date))}: ${point.value.toLocaleString()} words</title>
+    </circle>`;
+  }).join('');
+  return `<svg class="activity-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Words dictated during the last 14 days">
+    ${grids}<path class="chart-area" d="${area}"></path><path class="chart-line" d="${line}"></path>${dots}${labels}
+  </svg>`;
+}
+
+function recordingBarsSvg(activity) {
+  const width = 720;
+  const height = 230;
+  const pad = { top: 12, right: 10, bottom: 32, left: 10 };
+  const values = activity.map((item) => Number(item.recordings || 0));
+  const max = Math.max(1, ...values);
+  const slot = (width - pad.left - pad.right) / values.length;
+  const bars = values.map((value, index) => {
+    const barHeight = value ? Math.max(4, (value / max) * (height - pad.top - pad.bottom)) : 2;
+    const x = pad.left + index * slot + slot * 0.18;
+    const y = height - pad.bottom - barHeight;
+    return `<rect class="bar-chart-bar${index === values.length - 1 ? ' today' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(slot * 0.64).toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2">
+      <title>${escapeHtml(shortDate(activity[index].date))}: ${value} recordings</title>
+    </rect>`;
+  }).join('');
+  const labels = [0, 3, 6, 9, activity.length - 1].filter((index, position, all) => index < activity.length && all.indexOf(index) === position).map((index) => {
+    const x = pad.left + index * slot + slot / 2;
+    return `<text class="bar-chart-label" x="${x.toFixed(1)}" y="${height - 7}" text-anchor="middle">${escapeHtml(shortDate(activity[index].date))}</text>`;
+  }).join('');
+  return `<svg class="activity-bars" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily recording count during the last 14 days">${bars}${labels}</svg>`;
+}
+
+function paceRingSvg(value) {
+  const target = 180;
+  const ratio = Math.max(0, Math.min(1, Number(value || 0) / target));
+  const circumference = 2 * Math.PI * 54;
+  return `<svg class="pace-ring" viewBox="0 0 150 150" role="img" aria-label="Average speaking pace ${escapeHtml(value)} words per minute">
+    <circle class="ring-track" cx="75" cy="75" r="54"></circle>
+    <circle class="ring-value" cx="75" cy="75" r="54" stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${(circumference * (1 - ratio)).toFixed(1)}"></circle>
+    <text class="ring-number" x="75" y="72">${escapeHtml(value)}</text>
+    <text class="ring-label" x="75" y="91">WORDS / MIN</text>
+  </svg>`;
 }
 
 async function refreshHomeStats() {
@@ -639,33 +716,22 @@ async function refreshHomeStats() {
   const chart = $('#homeChart');
   if (!box) return;
   try {
-    const [s, adaptation] = await Promise.all([
-      window.afk.call('get_statistics', {}),
-      window.afk.call('get_adaptation', {})
-    ]);
-    const saved = fmtDuration((s.words.today / (s.typing_wpm_assumed || 40)) * 60);
+    const s = await window.afk.call('get_statistics', {});
+    const activity = activitySeries(s);
+    const total14 = activity.reduce((total, item) => total + Number(item.words || 0), 0);
     box.innerHTML =
-      homeStatCard(s.words.today.toLocaleString(), 'Words today', true) +
-      homeStatCard(s.words.week.toLocaleString(), 'Words this week') +
-      homeStatCard(saved, 'Typing saved today', true) +
-      homeStatCard((adaptation.training_count || 0).toLocaleString(), 'Training samples');
+      metric(s.words.today.toLocaleString(), 'Words today', `${s.words.lifetime.toLocaleString()} all time`, '#35b8d4') +
+      metric(s.words.week.toLocaleString(), 'Words this week', `${total14.toLocaleString()} in 14 days`, '#ff9a3d') +
+      metric(fmtDuration(s.typing_minutes_saved * 60), 'Time reclaimed', `${s.wpm_avg} words per minute`, '#3ccb7f') +
+      metric(`${s.streak_current}d`, 'Current streak', `${Math.max(s.streak_longest, s.streak_current)}d personal best`, '#1b4b72');
     if (chart) {
-      const wordMax = Math.max(1, s.words.today, s.words.week, s.words.month, s.words.lifetime);
-      const spark = [
-        s.words.today || 0,
-        s.words.week || 0,
-        s.words.month || 0,
-        s.recordings || 0,
-        Math.max(1, Math.round((s.avg_transcription_latency_ms || 0) / 100)),
-        adaptation.trigger_count || 0
-      ];
       chart.innerHTML =
-        `<div class="chart-title">Dictation pulse</div>
-        ${sparkBars(spark)}
-        <div class="home-bars">
-          ${barMeter('Today', s.words.today, wordMax, true)}
-          ${barMeter('Week', s.words.week, wordMax, false)}
-          ${barMeter('Month', s.words.month, wordMax, false)}
+        `<div class="voice-trail">
+          <div class="chart-heading">
+            <div><span class="section-kicker section-kicker-orange">Last 14 days</span><h3>Voice trail</h3></div>
+            <span class="chart-total">${total14.toLocaleString()} WORDS</span>
+          </div>
+          ${areaChartSvg(activity, { height: 250 })}
         </div>`;
     }
   } catch (e) {
@@ -725,52 +791,52 @@ async function refreshStatistics() {
   const grid = $('#statsGrid');
   try {
     const s = await window.afk.call('get_statistics', {});
-    const todaySaved = (s.words.today / (s.typing_wpm_assumed || 40));
-    const wordMax = Math.max(1, s.words.today, s.words.week, s.words.month);
-    const latencyBuckets = [
-      Math.max(1, Math.round((s.avg_transcription_latency_ms || 0) / 100)),
-      s.clarifications || 0,
-      Math.max(1, Math.round((s.avg_clarify_latency_ms || 0) / 100)),
-      s.recordings || 0,
-      Math.max(1, s.streak_current || 0)
-    ];
+    const activity = activitySeries(s);
+    const recent = activity.slice(-7).reduce((total, item) => total + Number(item.words || 0), 0);
+    const previous = activity.slice(0, 7).reduce((total, item) => total + Number(item.words || 0), 0);
+    const delta = previous ? Math.round(((recent - previous) / previous) * 100) : (recent ? 100 : 0);
+    const deltaLabel = delta === 0 ? 'Even with the previous week' : `${delta > 0 ? '+' : ''}${delta}% from the previous week`;
+    const ringTarget = Math.max(1, s.streak_longest || s.streak_current || 1);
     grid.innerHTML =
-      `<section class="stats-section">
-        <div class="stats-section-title">Words spoken</div>
-        <div class="stats-grid stats-grid-featured">
-          ${statCard(s.words.today.toLocaleString(), 'Today', true)}
-          <div class="stat-card chart-card">
-            ${barMeter('Today', s.words.today, wordMax, true)}
-            ${barMeter('Week', s.words.week, wordMax, false)}
-            ${barMeter('Month', s.words.month, wordMax, false)}
+      `<section class="insight-hero">
+        <div class="insight-primary">
+          <span class="section-kicker">All-time voice output</span>
+          <strong>${s.words.lifetime.toLocaleString()}</strong>
+          <span>words dictated on this Mac</span>
+          <div class="insight-change"><i></i><span>${escapeHtml(deltaLabel)}</span></div>
+        </div>
+        <div class="insight-chart">
+          <div class="chart-heading">
+            <div><span class="section-kicker section-kicker-orange">Last 14 days</span><h3>Words spoken</h3></div>
+            <span class="chart-total">${recent.toLocaleString()} THIS WEEK</span>
           </div>
-          ${statCard(s.words.lifetime.toLocaleString(), 'All time')}
+          ${areaChartSvg(activity, { height: 245 })}
         </div>
       </section>
-      <section class="stats-section">
-        <div class="stats-section-title">Productivity</div>
-        <div class="stats-grid">
-          ${statCard(s.wpm_avg, 'Average words/min', true)}
-          ${statCard(fmtDuration(todaySaved * 60), 'Typing time saved today')}
-          ${statCard(fmtDuration(s.typing_minutes_saved * 60), 'Typing time saved total', true)}
-          ${statCard(s.streak_current, 'Current streak days')}
-          ${statCard(s.streak_longest, 'Longest streak days')}
-        </div>
+
+      <section class="insight-metrics" aria-label="Key dictation metrics">
+        <div class="insight-metric" style="--metric-color:#0c8eae"><strong>${s.wpm_avg}</strong><span>Words per minute</span><small>Average speaking pace</small></div>
+        <div class="insight-metric" style="--metric-color:#e77518"><strong>${fmtDuration(s.typing_minutes_saved * 60)}</strong><span>Time reclaimed</span><small>At ${s.typing_wpm_assumed || 40} typing WPM</small></div>
+        <div class="insight-metric" style="--metric-color:#16995a"><strong>${s.recordings.toLocaleString()}</strong><span>Recording sessions</span><small>${fmtDuration(s.avg_recording_sec)} average length</small></div>
+        <div class="insight-metric" style="--metric-color:#1b4b72"><strong>${s.streak_current}d</strong><span>Current streak</span><small>${s.streak_longest}d personal best</small></div>
       </section>
-      <section class="stats-section">
-        <div class="stats-section-title">Recordings and latency</div>
-        <div class="stats-grid">
-          ${statCard(s.recordings.toLocaleString(), 'Total recordings')}
-          ${statCard(fmtDuration(s.longest_recording_sec), 'Longest recording')}
-          ${statCard(fmtDuration(s.avg_recording_sec), 'Average recording')}
-          <div class="stat-card chart-card">
-            <div class="chart-title">Activity pulse</div>
-            ${sparkBars(latencyBuckets)}
+
+      <section class="insight-visuals">
+        <div class="activity-panel">
+          <div class="chart-heading">
+            <div><span class="section-kicker section-kicker-cyan">Session cadence</span><h3>Recording rhythm</h3></div>
+            <span class="chart-total">${s.recordings.toLocaleString()} TOTAL</span>
           </div>
-          ${statCard(fmtDuration(s.total_transcription_sec), 'Total transcription time')}
-          ${statCard(`${s.avg_transcription_latency_ms} ms`, 'Average transcription latency')}
-          ${statCard(s.clarifications.toLocaleString(), 'Clarify requests')}
-          ${statCard(`${s.avg_clarify_latency_ms || 0} ms`, 'Average Clarify latency')}
+          ${recordingBarsSvg(activity)}
+        </div>
+        <div class="pace-panel">
+          ${paceRingSvg(s.wpm_avg)}
+          <div class="pace-copy">
+            <div class="pace-row"><span>Current / best streak</span><strong>${s.streak_current} / ${ringTarget} days</strong></div>
+            <div class="pace-row"><span>Longest session</span><strong>${fmtDuration(s.longest_recording_sec)}</strong></div>
+            <div class="pace-row"><span>Transcription latency</span><strong>${s.avg_transcription_latency_ms} ms</strong></div>
+            <div class="pace-row"><span>Clarify requests</span><strong>${s.clarifications.toLocaleString()}</strong></div>
+          </div>
         </div>
       </section>`;
   } catch (e) {

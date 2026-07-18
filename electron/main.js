@@ -82,7 +82,7 @@ function createWindow() {
     minWidth: 820,
     minHeight: 560,
     show: false,
-    backgroundColor: '#0d0f0f',
+    backgroundColor: '#1b4b72',
     title: 'AFK',
     icon: APP_ICON_PATH,
     autoHideMenuBar: true,

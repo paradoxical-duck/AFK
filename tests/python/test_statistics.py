@@ -73,6 +73,18 @@ class TestStats(unittest.TestCase):
         self.s.reset()
         self.assertEqual(self.s.snapshot()["words"]["lifetime"], 0)
 
+    def test_activity_is_continuous_and_includes_today(self):
+        self.s.record_dictation(50, 30.0, 500)
+        activity = self.s.snapshot()["activity"]
+        self.assertEqual(len(activity), 14)
+        self.assertEqual(activity[-1]["date"], date.today().isoformat())
+        self.assertEqual(activity[-1]["words"], 50)
+        self.assertEqual(activity[-1]["recordings"], 1)
+        self.assertEqual(activity[-1]["recording_seconds"], 30.0)
+
+        dates = [date.fromisoformat(item["date"]) for item in activity]
+        self.assertTrue(all((b - a).days == 1 for a, b in zip(dates, dates[1:])))
+
 
 if __name__ == "__main__":
     unittest.main()

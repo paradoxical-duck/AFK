@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 from PIL import Image
+from PIL import ImageChops
 from PIL import ImageDraw
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
@@ -22,6 +23,13 @@ def _fit_square(img: Image.Image, size: int) -> Image.Image:
     img = img.convert("RGBA")
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     fitted = img.resize((size, size), Image.Resampling.LANCZOS)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, size - 1, size - 1),
+        radius=max(2, round(size * 0.22)),
+        fill=255,
+    )
+    fitted.putalpha(ImageChops.multiply(fitted.getchannel("A"), mask))
     canvas.alpha_composite(fitted, (0, 0))
     return canvas
 
