@@ -12,72 +12,50 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <img class="brand-mark" src="../assets/icon.png" alt="" />
+        <img class="brand-mark" src="../assets/logo-source.png" alt="" />
         <div class="brand-text">
           <span class="brand-name">AFK</span>
-          <span class="brand-sub">Voice, locally.</span>
+          <span class="brand-sub">Voice to text</span>
         </div>
       </div>
 
       <nav class="nav" aria-label="AFK views">
         <button class="nav-item active" data-page="home" title="Dictation">
-          <span class="nav-icon" aria-hidden="true">&#9679;</span><span>Dictation</span>
+          <span class="nav-index" aria-hidden="true">01</span><span>Dictation</span>
         </button>
         <button class="nav-item" data-page="statistics" title="Statistics">
-          <span class="nav-icon" aria-hidden="true">&#9638;</span><span>Statistics</span>
+          <span class="nav-index" aria-hidden="true">02</span><span>Statistics</span>
         </button>
         <button class="nav-item" data-page="train" title="Train">
-          <span class="nav-icon" aria-hidden="true">&#9651;</span><span>Train</span>
+          <span class="nav-index" aria-hidden="true">03</span><span>Train</span>
         </button>
         <button class="nav-item" data-page="settings" title="Settings">
-          <span class="nav-icon" aria-hidden="true">&#9881;</span><span>Settings</span>
+          <span class="nav-index" aria-hidden="true">04</span><span>Settings</span>
         </button>
         <button class="nav-item" data-page="about" title="About">
-          <span class="nav-icon nav-icon-letter" aria-hidden="true">i</span><span>About</span>
+          <span class="nav-index" aria-hidden="true">05</span><span>About</span>
         </button>
       </nav>
-
-      <div class="sidebar-footer">
-        <div class="backend-status" id="backendStatus">
-          <span class="dot dot-pending" id="backendDot"></span>
-          <span id="backendLabel">Starting backend</span>
-        </div>
-        <div class="sidebar-actions">
-          <button class="utility-button" id="restartHotkeysBtn" title="Restart shortcuts">
-            <span aria-hidden="true">&#8635;</span><span>Restart shortcuts</span>
-          </button>
-          <button class="utility-button" id="quitBtn" title="Quit AFK">
-            <span aria-hidden="true">&#10005;</span><span>Quit AFK</span>
-          </button>
-        </div>
-      </div>
     </aside>
 
     <main class="content">
       <section class="page active" id="page-home">
         <header class="page-head">
           <div>
-            <span class="page-kicker">Local voice console</span>
+            <span class="page-kicker">Voice workspace</span>
             <h1>Dictation</h1>
           </div>
-          <div class="head-status" aria-label="Model status">
-            <span class="status-pill" id="asrStatus">Speech: starting</span>
-            <span class="status-pill status-pill-blue" id="clarifyModels">Clarify: starting</span>
+          <div class="mode-signature" aria-label="Dictation shortcuts">
+            <span>Hold</span><kbd id="pttHotkey">Option</kbd>
+            <i aria-hidden="true"></i>
+            <span>Toggle</span><kbd id="toggleHotkey">Option+Space</kbd>
           </div>
         </header>
 
         <section class="command-deck" id="commandDeck" aria-label="Dictation controls">
-          <div class="signal-rail" aria-hidden="true">
-            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-          </div>
-
           <div class="command-main">
             <div class="record-state">
-              <div class="record-orb" id="recordOrb" aria-hidden="true">
-                <span></span><span></span><span></span><span></span><span></span>
-              </div>
+              <div class="record-orb" id="recordOrb" aria-hidden="true"></div>
               <div class="record-copy">
                 <span class="section-kicker">Voice input</span>
                 <strong class="record-status" id="recordStatus">Ready</strong>
@@ -103,9 +81,6 @@
               <span>Shortcuts</span>
               <strong id="hotkeyStatus">Starting</strong>
             </div>
-            <div class="shortcut-pair"><span>Hold</span><kbd id="pttHotkey">Option</kbd></div>
-            <div class="shortcut-pair"><span>Toggle</span><kbd id="toggleHotkey">Option+Space</kbd></div>
-            <button class="btn btn-quiet btn-compact" id="restartHotkeysInlineBtn">Restart</button>
           </div>
         </section>
 
@@ -116,8 +91,7 @@
               <h2 id="transcriptTitle">Transcript</h2>
             </div>
             <div class="section-actions">
-              <button class="btn btn-quiet btn-compact" id="loadAsrBtn">Load speech model</button>
-              <button class="btn btn-quiet btn-compact" id="copyTranscriptBtn">Copy</button>
+              <button class="btn btn-quiet btn-compact" id="copyTranscriptBtn">Copy text</button>
             </div>
           </div>
           <div class="transcription" id="transcription"><span class="placeholder">No transcript yet.</span></div>
@@ -163,7 +137,6 @@
         <div class="hidden-hotkeys" aria-hidden="true">
           <span id="clarifyHotkey">-</span><span id="learnHotkey">-</span>
           <span id="codeHoldHotkey">-</span><span id="codeToggleHotkey">-</span>
-          <span id="activeModel">-</span>
         </div>
       </section>
 
@@ -192,7 +165,6 @@
           <section class="train-panel" aria-labelledby="trainWordTitle">
             <div class="section-head">
               <div><span class="section-kicker">Recognition</span><h2 id="trainWordTitle">Words and names</h2></div>
-              <span class="status-pill">Parakeet</span>
             </div>
             <div class="train-fields">
               <label><span>Word or phrase</span><input type="text" id="trainWordInput" spellcheck="false" /></label>
@@ -207,7 +179,6 @@
           <section class="train-panel" aria-labelledby="trainTriggerTitle">
             <div class="section-head">
               <div><span class="section-kicker section-kicker-blue">Expansion</span><h2 id="trainTriggerTitle">Spoken triggers</h2></div>
-              <span class="status-pill status-pill-blue">Text output</span>
             </div>
             <div class="train-fields">
               <label><span>When I say</span><input type="text" id="trainTriggerInput" spellcheck="false" /></label>
@@ -239,7 +210,7 @@
           </div>
         </header>
         <div class="settings-list" id="settingsList">
-          <div class="empty-hint">Settings unavailable while the backend starts.</div>
+          <div class="empty-hint">Settings are getting ready.</div>
         </div>
       </section>
 
@@ -252,22 +223,14 @@
         </header>
         <section class="about-layout" aria-label="About AFK">
           <div class="about-identity">
-            <img src="../assets/icon.png" alt="" />
+            <img class="about-mark" src="../assets/logo-source.png" alt="" />
             <strong>AFK</strong>
-            <span>Local speech to text</span>
+            <span>Voice, in your own words.</span>
           </div>
           <div class="about-facts">
             <div class="info-row"><span class="info-label">Version</span><span class="info-value" id="aboutVersion">-</span></div>
-            <div class="info-row"><span class="info-label">Backend</span><span class="info-value" id="aboutBackend">-</span></div>
-            <div class="info-row"><span class="info-label">Models</span><span class="info-value" id="aboutModels">-</span></div>
-            <div class="info-row"><span class="info-label">Electron</span><span class="info-value" id="aboutElectron">-</span></div>
-            <div class="info-row"><span class="info-label">Node</span><span class="info-value" id="aboutNode">-</span></div>
+            <div class="info-row"><span class="info-label">Storage</span><span class="info-value">On this Mac</span></div>
             <div class="info-row"><span class="info-label">License</span><span class="info-value">MIT</span></div>
-          </div>
-          <div class="model-ledger">
-            <div><span>Speech</span><strong>Parakeet 0.6B v3</strong></div>
-            <div><span>Short cleanup</span><strong>Gemma 3 270M</strong></div>
-            <div><span>Long cleanup</span><strong>Gemma 4 E2B IT</strong></div>
           </div>
         </section>
       </section>

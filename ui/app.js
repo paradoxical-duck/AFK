@@ -222,16 +222,16 @@ function initNav() {
 function setBackendStatus(ready) {
   const dot = $('#backendDot');
   const label = $('#backendLabel');
-  dot.className = ready ? 'dot dot-ok' : 'dot dot-pending';
-  label.textContent = ready ? 'Backend ready' : 'Starting backend';
+  if (dot) dot.className = ready ? 'dot dot-ok' : 'dot dot-pending';
+  if (label) label.textContent = ready ? 'Backend ready' : 'Starting backend';
 }
 
 async function initAbout() {
   try {
     const info = await window.afk.app.getInfo();
-    $('#aboutVersion').textContent = info.version;
-    $('#aboutElectron').textContent = info.electron;
-    $('#aboutNode').textContent = info.node;
+    setText('#aboutVersion', info.version);
+    setText('#aboutElectron', info.electron);
+    setText('#aboutNode', info.node);
     _platform = info.platform || '';
   } catch (e) {
     // Backend shell can still be starting.
@@ -254,9 +254,9 @@ async function refreshBackendInfo() {
     setBackendStatus(ready);
     if (!ready) return;
     const info = await window.afk.call('get_info', {});
-    $('#aboutBackend').textContent = `${info.backend} (py ${info.python})`;
-    $('#aboutModels').textContent = info.models_status || 'not loaded';
-    $('#activeModel').textContent = 'Parakeet + Gemma';
+    setText('#aboutBackend', `${info.backend} (py ${info.python})`);
+    setText('#aboutModels', info.models_status || 'not loaded');
+    setText('#activeModel', 'Parakeet + Gemma');
   } catch (e) {
     setBackendStatus(false);
   }
@@ -292,9 +292,9 @@ async function refreshAsrStatus() {
       loading: 'loading',
       'not loaded': 'idle'
     };
-    $('#asrStatus').textContent = `Speech: ${engine || 'auto'} / ${map[status] || status}`;
+    setText('#asrStatus', `Speech: ${engine || 'auto'} / ${map[status] || status}`);
   } catch (e) {
-    $('#asrStatus').textContent = 'Speech: starting';
+    setText('#asrStatus', 'Speech: starting');
   }
 }
 
@@ -368,9 +368,9 @@ async function refreshClarifyStatus() {
   try {
     const s = await window.afk.call('clarify_status', {});
     const clean = (value) => value === 'loaded' ? 'ready' : value;
-    $('#clarifyModels').textContent = `Clarify: ${clean(s.short)} / ${clean(s.long)}`;
+    setText('#clarifyModels', `Clarify: ${clean(s.short)} / ${clean(s.long)}`);
   } catch (e) {
-    $('#clarifyModels').textContent = 'Clarify: starting';
+    setText('#clarifyModels', 'Clarify: starting');
   }
 }
 
@@ -390,7 +390,7 @@ async function clarifyText() {
     const model = res.model && res.model !== 'none' ? res.model : 'no model';
     setText(
       '#clarifyMeta',
-      `${res.words} words / ${model}` + (res.latency_ms ? ` / ${res.latency_ms} ms` : '')
+      `${res.words} words` + (res.latency_ms ? ` / ${res.latency_ms} ms` : '')
     );
   } catch (e) {
     setText('#clarifyOutput', `Clarify failed: ${e.message || e}`);
@@ -669,8 +669,8 @@ async function refreshHomeStats() {
         </div>`;
     }
   } catch (e) {
-    box.innerHTML = '<div class="empty-hint">Statistics unavailable while the backend starts.</div>';
-    if (chart) chart.innerHTML = '<div class="empty-hint">Activity graph unavailable while the backend starts.</div>';
+    box.innerHTML = '<div class="empty-hint">Statistics are not ready yet.</div>';
+    if (chart) chart.innerHTML = '<div class="empty-hint">Activity will appear here.</div>';
   }
 }
 
@@ -705,7 +705,7 @@ async function refreshHistory() {
       ? items.map(historyItem).join('')
       : '<div class="empty-hint">No transcriptions yet.</div>';
   } catch (e) {
-    list.innerHTML = '<div class="empty-hint">History unavailable while the backend starts.</div>';
+    list.innerHTML = '<div class="empty-hint">History is not ready yet.</div>';
   }
 }
 
@@ -774,7 +774,7 @@ async function refreshStatistics() {
         </div>
       </section>`;
   } catch (e) {
-    grid.innerHTML = '<div class="empty-hint">Statistics unavailable while the backend starts.</div>';
+    grid.innerHTML = '<div class="empty-hint">Statistics are not ready yet.</div>';
   }
 }
 
@@ -800,7 +800,7 @@ async function refreshTrain() {
       : '<div class="empty-hint">No training samples yet.</div>';
   } catch (e) {
     $('#trainSummary').textContent = 'starting';
-    $('#trainingList').innerHTML = '<div class="empty-hint">Training unavailable while the backend starts.</div>';
+    $('#trainingList').innerHTML = '<div class="empty-hint">Training memory is not ready yet.</div>';
   }
 }
 
@@ -920,7 +920,7 @@ async function refreshSettings() {
         settingRow('Punctuation', 'Keep recognized punctuation', toggleHtml('set-auto_punctuation', cfg.auto_punctuation !== false)),
         settingRow('Training corrections', 'Apply personal vocabulary', toggleHtml('set-training_corrections', cfg.training_corrections !== false)),
         settingRow('Code language', 'Formatting target for code mode', `<select id="set-code_language">${codeLanguageOptions(cfg.code_language || 'auto')}</select>`),
-        settingRow('Long-model threshold', 'Words before long cleanup', `<input type="number" id="set-word_count_threshold" min="1" max="500" value="${escapeHtml(cfg.word_count_threshold)}">`)
+        settingRow('Cleanup length', 'Words before extended cleanup', `<input type="number" id="set-word_count_threshold" min="1" max="500" value="${escapeHtml(cfg.word_count_threshold)}">`)
       ]) +
       settingsGroup('Shortcuts', [
         settingRow('Shortcut listener', 'Native macOS keyboard listener', '<button class="btn btn-quiet" id="settingsRestartHotkeysBtn">Restart shortcuts</button>'),
@@ -940,7 +940,7 @@ async function refreshSettings() {
     wireSettingControls();
     enhanceSelects(list);
   } catch (e) {
-    list.innerHTML = '<div class="empty-hint">Settings unavailable while the backend starts.</div>';
+    list.innerHTML = '<div class="empty-hint">Settings are not ready yet.</div>';
   }
 }
 
@@ -1044,7 +1044,7 @@ function initEvents() {
       case 'clarify_done':
         if (data && data.text) {
           setText('#clarifyOutput', data.text);
-          setText('#clarifyMeta', `${data.model || ''}` + (data.latency_ms ? ` / ${data.latency_ms} ms` : ''));
+          setText('#clarifyMeta', data.latency_ms ? `${data.latency_ms} ms` : '');
         }
         refreshClarifyStatus();
         break;

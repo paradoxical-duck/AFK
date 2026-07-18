@@ -35,20 +35,10 @@ def _draw_template_tray_icon(size: int) -> Image.Image:
     def px(value: float) -> int:
         return round(value * scale)
 
-    bars = [
-        (4.5, 7.0, 11.0),
-        (7.5, 4.0, 14.0),
-        (10.5, 2.5, 15.5),
-        (13.5, 6.0, 12.0),
-    ]
-    radius = max(1, px(0.9))
-    width = max(2, px(1.8))
-    for x, top, bottom in bars:
-        left = px(x) - width // 2
-        right = left + width
-        draw.rounded_rectangle((left, px(top), right, px(bottom)), radius=radius, fill=color)
-
-    draw.rounded_rectangle((px(3.5), px(15.3), px(14.5), px(16.8)), radius=px(0.7), fill=color)
+    stroke = max(2, px(2.1))
+    draw.line((px(3.5), px(15), px(8.9), px(3)), fill=color, width=stroke)
+    draw.line((px(8.9), px(3), px(14.5), px(15)), fill=color, width=stroke)
+    draw.rounded_rectangle((px(8.2), px(8.4), px(9.8), px(14.2)), radius=max(1, px(0.5)), fill=color)
     return img
 
 
