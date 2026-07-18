@@ -126,9 +126,27 @@ function rebuildSelectMenu(select) {
   const menu = shell.querySelector('.select-menu');
   if (!menu) return;
   menu.innerHTML = Array.from(select.options).map((option) =>
-    `<button type="button" class="select-option" role="option" data-value="${escapeHtml(option.value)}">${escapeHtml(option.textContent)}</button>`
+    `<button type="button" class="select-option" role="option" data-value="${escapeHtml(option.value)}"><span>${escapeHtml(option.textContent)}</span><i aria-hidden="true"></i></button>`
   ).join('');
   syncSelectControl(select);
+}
+
+function positionSelectMenu(shell) {
+  const button = shell.querySelector('.select-button');
+  const menu = shell.querySelector('.select-menu');
+  if (!button || !menu) return;
+  shell.classList.remove('open-up', 'align-right');
+  const rect = button.getBoundingClientRect();
+  const margin = 16;
+  const below = Math.max(0, window.innerHeight - rect.bottom - margin);
+  const above = Math.max(0, rect.top - margin);
+  const openUp = below < 190 && above > below;
+  const available = openUp ? above : below;
+  shell.classList.toggle('open-up', openUp);
+  menu.style.maxHeight = `${Math.max(120, Math.min(320, available - 8))}px`;
+  if (menu.getBoundingClientRect().right > window.innerWidth - margin) {
+    shell.classList.add('align-right');
+  }
 }
 
 function enhanceSelect(select) {
@@ -160,6 +178,7 @@ function enhanceSelect(select) {
     closeSelects(shell);
     shell.classList.toggle('open', open);
     button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) positionSelectMenu(shell);
   });
 
   button.addEventListener('keydown', (event) => {
@@ -172,6 +191,7 @@ function enhanceSelect(select) {
     if (!shell.classList.contains('open')) {
       shell.classList.add('open');
       button.setAttribute('aria-expanded', 'true');
+      positionSelectMenu(shell);
       return;
     }
     const options = Array.from(select.options);
