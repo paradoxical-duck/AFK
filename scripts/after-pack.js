@@ -212,6 +212,21 @@ function bundleMacPythonFramework(context) {
   fs.rmSync(path.join(frameworkDir, '.DS_Store'), { force: true });
   fs.rmSync(path.join(frameworkDir, 'Versions', version, '.DS_Store'), { force: true });
   fs.rmSync(path.join(frameworkDir, 'Versions', version, '_CodeSignature'), { recursive: true, force: true });
+  const pythonAppPlist = path.join(
+    targetVersionDir,
+    'Resources',
+    'Python.app',
+    'Contents',
+    'Info.plist'
+  );
+  if (fs.existsSync(pythonAppPlist)) {
+    try {
+      execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Add :LSUIElement bool true', pythonAppPlist]);
+    } catch (_) {
+      execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Set :LSUIElement true', pythonAppPlist]);
+    }
+    console.log(`after-pack: configured bundled Python.app as a background agent -> ${pythonAppPlist}`);
+  }
   console.log(`after-pack: bundled Python.framework -> ${frameworkDir}`);
 
   const oldInstallName = `/Library/Frameworks/Python.framework/Versions/${version}/Python`;

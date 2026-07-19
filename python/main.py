@@ -11,6 +11,24 @@ import os
 # Ensure the package is importable whether launched from repo or bundle.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _suppress_macos_dock_icon() -> None:
+    if sys.platform != "darwin":
+        return
+    try:
+        from AppKit import NSApplication, NSApplicationActivationPolicyProhibited
+
+        NSApplication.sharedApplication().setActivationPolicy_(
+            NSApplicationActivationPolicyProhibited
+        )
+    except Exception:
+        # Packaging also stamps LSUIElement on Python.app. Keep startup alive
+        # if PyObjC is unavailable in a development environment.
+        pass
+
+
+_suppress_macos_dock_icon()
+
 from afk_backend.app import AFKApp  # noqa: E402
 from afk_backend.rpc import RpcServer  # noqa: E402
 from afk_backend import logutil  # noqa: E402

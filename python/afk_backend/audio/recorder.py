@@ -8,6 +8,7 @@ trimming, automatic gain control, and a light noise gate. We deliberately keep
 DSP cheap so it adds negligible latency on CPU.
 """
 
+import sys
 import threading
 import time
 from typing import List, Optional
@@ -42,7 +43,9 @@ class Recorder:
         self._recording = False
         self._started_at = 0.0
         self._device: Optional[int] = None
+        self._device_name = "System default"
         self._sr = TARGET_SR
+        self._status_count = 0
 
     # ---- device management ----
     @staticmethod
@@ -100,11 +103,25 @@ class Recorder:
 
         self._device = self._resolve_device(device)
         self._frames = []
-        self._sr = TARGET_SR
+        self._status_count = 0
+
+        try:
+            device_info = sd.query_devices(self._device, "input")
+        except Exception as exc:
+            raise AudioUnavailable(f"Unable to inspect the selected microphone: {exc}") from exc
+
+        self._device_name = str(device_info.get("name") or device or "System default")
+        native_sr = int(round(float(device_info.get("default_samplerate", TARGET_SR) or TARGET_SR)))
+        # CoreAudio devices frequently advertise 48 kHz. Asking PortAudio to
+        # convert them to 16 kHz inside the callback can open successfully but
+        # later deliver empty/invalid buffers, especially for Continuity Mic.
+        self._sr = native_sr if sys.platform == "darwin" else TARGET_SR
+        blocksize = 0 if sys.platform == "darwin" else BLOCKSIZE
 
         def callback(indata, frames, time_info, status):  # noqa: ANN001
             if status:
-                logutil.debug(f"audio status: {status}")
+                self._status_count += 1
+                logutil.warn(f"Audio callback status ({self._device_name}): {status}")
             with self._lock:
                 self._frames.append(indata[:, 0].copy())
 
@@ -113,31 +130,24 @@ class Recorder:
                 samplerate=self._sr,
                 channels=1,
                 dtype="float32",
-                blocksize=BLOCKSIZE,
+                blocksize=blocksize,
                 device=self._device,
                 callback=callback,
                 latency="low",
             )
             self._stream.start()
         except Exception as exc:
-            # Fallback: open at device default rate and resample on stop.
-            logutil.warn(f"16k capture failed ({exc}); retrying at device default")
-            self._sr = 0
-            self._stream = sd.InputStream(
-                samplerate=None,
-                channels=1,
-                dtype="float32",
-                blocksize=BLOCKSIZE,
-                device=self._device,
-                callback=callback,
-                latency="low",
-            )
-            self._stream.start()
-            self._sr = int(self._stream.samplerate)
+            self._stream = None
+            raise AudioUnavailable(
+                f"Unable to open microphone '{self._device_name}' at {self._sr} Hz: {exc}"
+            ) from exc
 
         self._recording = True
         self._started_at = time.time()
-        logutil.debug(f"Recording started (device={self._device}, sr={self._sr})")
+        logutil.info(
+            f"Recording started (device='{self._device_name}', index={self._device}, "
+            f"capture_sr={self._sr})"
+        )
 
     def stop(self) -> dict:
         """Stop and return {'audio': np.ndarray(float32 @16k), 'duration': sec, 'sr': 16000}."""
@@ -158,11 +168,24 @@ class Recorder:
             self._frames = []
 
         if not frames:
+            logutil.warn(
+                f"Recording stopped with no audio buffers (device='{self._device_name}', "
+                f"duration={duration:.2f}s, statuses={self._status_count})"
+            )
             return {"audio": np.zeros(0, dtype=np.float32), "duration": 0.0, "sr": TARGET_SR}
 
         audio = np.concatenate(frames).astype(np.float32)
+        captured_samples = int(audio.size)
         if self._sr != TARGET_SR and self._sr > 0:
             audio = _resample(audio, self._sr, TARGET_SR)
+
+        lv = levels(audio)
+        logutil.info(
+            f"Recording captured (device='{self._device_name}', duration={duration:.2f}s, "
+            f"capture_sr={self._sr}, captured_samples={captured_samples}, "
+            f"output_samples={lv['samples']}, rms={lv['rms']:.7f}, "
+            f"peak={lv['peak']:.7f}, statuses={self._status_count})"
+        )
 
         return {"audio": audio, "duration": duration, "sr": TARGET_SR}
 

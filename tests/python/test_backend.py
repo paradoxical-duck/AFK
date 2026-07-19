@@ -141,6 +141,52 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(events[0], ("sleep", appmod.RECORDING_TAIL_SECONDS))
         self.assertEqual(events[1], "stop")
 
+    def test_empty_processed_result_retries_same_capture_without_noise_gate(self):
+        audio = np.ones(16000, dtype=np.float32) * 0.02
+
+        class FakeRecorder:
+            is_recording = False
+
+            def stop(self):
+                return {"audio": audio, "duration": 1.0, "sr": 16000}
+
+        class FakeTranscriber:
+            def __init__(self):
+                self.calls = 0
+
+            def transcribe(self, *_args, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return {"text": "", "latency_ms": 10}
+                return {"text": "speech recovered", "latency_ms": 15}
+
+        self.app.recorder = FakeRecorder()
+        self.app.transcriber = FakeTranscriber()
+        result = self.app.stop_recording({})
+        self.assertEqual(result["text"], "Speech recovered")
+        self.assertEqual(result["latency_ms"], 25)
+        self.assertTrue(result["recognition_retry"])
+        self.assertEqual(self.app.transcriber.calls, 2)
+
+    def test_strong_audio_with_empty_recognition_is_not_reported_as_no_speech(self):
+        audio = np.ones(16000, dtype=np.float32) * 0.02
+
+        class FakeRecorder:
+            is_recording = False
+
+            def stop(self):
+                return {"audio": audio, "duration": 1.0, "sr": 16000}
+
+        class EmptyTranscriber:
+            def transcribe(self, *_args, **_kwargs):
+                return {"text": "", "latency_ms": 10}
+
+        self.app.recorder = FakeRecorder()
+        self.app.transcriber = EmptyTranscriber()
+        result = self.app.stop_recording({})
+        self.assertEqual(result["reason"], "unrecognized")
+        self.assertIn("captured", result["message"])
+
 
 class TestSubprocessRpc(unittest.TestCase):
     """Exercise the exact stdio contract Electron uses."""

@@ -24,6 +24,13 @@ const { resolvePython, backendEntry } = require('./python-locator');
 
 const RPC_TIMEOUT_MS = 30000;
 
+function parsePythonLogLine(line) {
+  const trimmed = String(line || '').trim();
+  const match = trimmed.match(/^\d{2}:\d{2}:\d{2}\s+\[(DEBUG|INFO|WARN|ERROR)\]\s*(.*)$/);
+  if (!match) return { level: 'debug', msg: `[py] ${trimmed}` };
+  return { level: match[1].toLowerCase(), msg: `[py] ${match[2]}` };
+}
+
 class PythonBridge extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -96,7 +103,7 @@ class PythonBridge extends EventEmitter {
     const errRl = readline.createInterface({ input: this.proc.stderr });
     errRl.on('line', (line) => {
       if (!line.trim()) return;
-      this.emit('log', { level: 'debug', msg: `[py] ${line}` });
+      this.emit('log', parsePythonLogLine(line));
     });
   }
 
@@ -220,4 +227,4 @@ class PythonBridge extends EventEmitter {
   }
 }
 
-module.exports = { PythonBridge };
+module.exports = { PythonBridge, parsePythonLogLine };

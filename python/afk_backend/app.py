@@ -210,8 +210,8 @@ class AFKApp:
         captured = self.recorder.stop()
         emit_event("recording_stopped", {"duration": captured["duration"]})
 
-        audio = captured["audio"]
-        if audio is None or len(audio) == 0:
+        raw_audio = captured["audio"]
+        if raw_audio is None or len(raw_audio) == 0:
             result = _empty_transcription(captured["duration"], "empty_audio")
             emit_event("transcription", result)
             return result
@@ -225,8 +225,8 @@ class AFKApp:
             emit_event("transcription", result)
             return result
 
-        raw_levels = audio_levels(audio)
-        if signal_too_quiet(audio):
+        raw_levels = audio_levels(raw_audio)
+        if signal_too_quiet(raw_audio):
             logutil.warn(
                 "Microphone signal too quiet "
                 f"(rms={raw_levels['rms']:.7f}, peak={raw_levels['peak']:.7f})"
@@ -243,7 +243,7 @@ class AFKApp:
         s = self.settings.all()
         apply_text_formatting = params.get("apply_text_formatting", True)
         audio = process_audio(
-            audio,
+            raw_audio,
             sr=captured["sr"],
             noise_suppression=s.get("noise_suppression", True),
             auto_gain=s.get("auto_gain", True),
@@ -252,9 +252,29 @@ class AFKApp:
         processed_levels = audio_levels(audio)
 
         result = self.transcriber.transcribe(audio, sample_rate=captured["sr"])
+        retry_used = False
+        first_latency_ms = result.get("latency_ms", 0) or 0
+        if not result.get("text") and (
+            s.get("noise_suppression", True) or s.get("silence_trim", True)
+        ):
+            # The light noise gate is useful for ordinary room noise, but can
+            # erase low-level speech from beam-forming and Continuity mics.
+            # Retry the same recording once without destructive conditioning.
+            retry_audio = process_audio(
+                raw_audio,
+                sr=captured["sr"],
+                noise_suppression=False,
+                auto_gain=s.get("auto_gain", True),
+                silence_trim=False,
+            )
+            retry_result = self.transcriber.transcribe(retry_audio, sample_rate=captured["sr"])
+            retry_used = True
+            retry_result["latency_ms"] = first_latency_ms + (retry_result.get("latency_ms", 0) or 0)
+            result = retry_result
         result["duration"] = round(captured["duration"], 2)
         result["raw_levels"] = raw_levels
         result["processed_levels"] = processed_levels
+        result["recognition_retry"] = retry_used
         if _silence_hallucination(result.get("text", ""), raw_levels):
             logutil.warn(
                 "Suppressing likely silence hallucination "
@@ -265,6 +285,13 @@ class AFKApp:
                     "text": "",
                     "reason": "low_signal",
                     "message": "Microphone signal is too quiet. Check system input volume or choose another mic.",
+                }
+            )
+        elif not result.get("text"):
+            result.update(
+                {
+                    "reason": "unrecognized",
+                    "message": "Speech was captured but could not be recognized. Please try again.",
                 }
             )
         if result.get("text"):
@@ -289,6 +316,13 @@ class AFKApp:
                     result["text"] = formatted
                     result["formatted"] = True
             self._last_dictation_text = result.get("text", "")
+        logutil.info(
+            "Transcription finished "
+            f"(duration={captured['duration']:.2f}s, words={len((result.get('text') or '').split())}, "
+            f"latency_ms={result.get('latency_ms', 0)}, retry={retry_used}, "
+            f"reason={result.get('reason') or 'ok'}, raw_rms={raw_levels['rms']:.7f}, "
+            f"raw_peak={raw_levels['peak']:.7f})"
+        )
         # Record usage stats (words dictated, recording length, transcription latency).
         try:
             words = len((result.get("text") or "").split())
@@ -308,6 +342,7 @@ class AFKApp:
                 "adaptations": result.get("adaptations", []),
                 "raw_levels": result.get("raw_levels"),
                 "processed_levels": result.get("processed_levels"),
+                "recognition_retry": result.get("recognition_retry", False),
             },
         )
         return result

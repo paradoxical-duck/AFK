@@ -2,6 +2,7 @@
 
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "python"))
 
-from afk_backend.audio.recorder import _resample, _trim_silence, levels, process, signal_too_quiet  # noqa: E402
+from afk_backend.audio.recorder import Recorder, _resample, _trim_silence, levels, process, signal_too_quiet  # noqa: E402
 
 
 class TestDsp(unittest.TestCase):
@@ -54,6 +55,38 @@ class TestDsp(unittest.TestCase):
         self.assertFalse(signal_too_quiet(loud))
         self.assertEqual(levels(quiet)["samples"], 16000)
         self.assertGreater(levels(loud)["peak"], levels(quiet)["peak"])
+
+
+class TestMacCapture(unittest.TestCase):
+    def test_uses_selected_device_native_sample_rate(self):
+        from afk_backend.audio import recorder as recorder_module
+
+        opened = {}
+
+        class FakeStream:
+            def __init__(self, **kwargs):
+                opened.update(kwargs)
+
+            def start(self):
+                return None
+
+        fake_sd = mock.Mock()
+        fake_sd.default.device = [0, 1]
+        fake_sd.query_devices.side_effect = [
+            [{"name": "Phone Mic", "max_input_channels": 1, "default_samplerate": 48000}],
+            {"name": "Phone Mic", "max_input_channels": 1, "default_samplerate": 48000},
+        ]
+        fake_sd.InputStream = FakeStream
+
+        with mock.patch.object(recorder_module, "sd", fake_sd), mock.patch.object(
+            recorder_module.sys, "platform", "darwin"
+        ):
+            recorder = Recorder()
+            recorder.start("Phone Mic")
+
+        self.assertEqual(opened["device"], 0)
+        self.assertEqual(opened["samplerate"], 48000)
+        self.assertEqual(opened["blocksize"], 0)
 
 
 if __name__ == "__main__":

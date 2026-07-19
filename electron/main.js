@@ -632,7 +632,11 @@ function startBackend() {
       const reason = data && data.reason;
       const message = data && data.message;
       setOverlayState('done', {
-        label: text ? 'Ready to paste' : (reason === 'low_signal' ? 'Mic too quiet' : 'No speech detected'),
+        label: text
+          ? 'Ready to paste'
+          : (reason === 'low_signal'
+            ? 'Mic too quiet'
+            : (reason === 'unrecognized' ? 'Could not recognize speech' : 'No speech detected')),
         sub: text ? 'Dictation complete' : (message || 'Try speaking closer to the microphone')
       });
       hideOverlaySoon(text ? 1400 : 1800);
