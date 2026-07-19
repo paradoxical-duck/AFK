@@ -59,7 +59,7 @@ function signMacApp(context) {
 
   const args = ['--force', '--deep'];
   if (identity !== '-' && hasKeychain) args.push('--keychain', configuredKeychain);
-  args.push('--sign', identity, appPath);
+  args.push('--sign', identity, '--timestamp=none', appPath);
 
   if (identity === '-') {
     console.warn('AFK mac signing identity not found; using ad-hoc signing. Accessibility permission may need to be re-granted after rebuilds.');
@@ -67,10 +67,39 @@ function signMacApp(context) {
     console.log(`Signing mac app with "${identity}"`);
   }
 
-  signModifiedPythonLaunchers(context, identity, hasKeychain ? configuredKeychain : '');
+  const signingKeychain = hasKeychain ? configuredKeychain : '';
+  signBundledPythonFramework(context, identity, signingKeychain);
+  signModifiedPythonLaunchers(context, identity, signingKeychain);
   execFileSync('codesign', args, {
     stdio: 'inherit'
   });
+}
+
+function signBundledPythonFramework(context, identity, keychain) {
+  if (context.electronPlatformName !== 'darwin') return;
+  const appName = context.packager.appInfo.productFilename;
+  const frameworkVersion = path.join(
+    context.appOutDir,
+    `${appName}.app`,
+    'Contents',
+    'Frameworks',
+    'Python.framework',
+    'Versions',
+    macPythonVersion()
+  );
+  const pythonApp = path.join(frameworkVersion, 'Resources', 'Python.app');
+
+  // LSUIElement changes Python.app/Info.plist, invalidating the original PSF
+  // signature. Sign that nested app explicitly before sealing its framework;
+  // codesign --deep on the outer Electron app does not reliably replace it.
+  for (const [target, deep] of [[pythonApp, true], [frameworkVersion, false]]) {
+    if (!fs.existsSync(target)) continue;
+    const args = ['--force'];
+    if (deep) args.push('--deep');
+    if (identity !== '-' && keychain) args.push('--keychain', keychain);
+    args.push('--sign', identity, '--timestamp=none', target);
+    execFileSync('codesign', args, { stdio: 'inherit' });
+  }
 }
 
 function signModifiedPythonLaunchers(context, identity, keychain) {
@@ -90,7 +119,7 @@ function signModifiedPythonLaunchers(context, identity, keychain) {
     if (!fs.existsSync(executable)) continue;
     const args = ['--force'];
     if (identity !== '-' && keychain) args.push('--keychain', keychain);
-    args.push('--sign', identity, executable);
+    args.push('--sign', identity, '--timestamp=none', executable);
     execFileSync('codesign', args, { stdio: 'inherit' });
   }
 }
