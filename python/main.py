@@ -8,6 +8,10 @@ corrupts the protocol stream.
 import sys
 import os
 
+# Keep the signed app bundle immutable even when the backend is launched
+# directly instead of through Electron's PYTHONDONTWRITEBYTECODE environment.
+sys.dont_write_bytecode = True
+
 # Ensure the package is importable whether launched from repo or bundle.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
